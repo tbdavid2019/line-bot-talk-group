@@ -124,7 +124,13 @@ async def handle_callback(request: Request):
             else:
                 # 私人對話：所有訊息都回應
                 should_reply = True
-                logging.info(f"Private message: '{text}'")
+                # 檢查是否為特殊指令
+                has_special_command = any(cmd in text.lower() for cmd in special_commands)
+                if not has_special_command:
+                    # 一般對話模式
+                    logging.info(f"Private conversation mode: '{text}'")
+                else:
+                    logging.info(f"Private message with special command: '{text}'")
             
             # 獲取現有對話記錄
             try:
@@ -157,12 +163,25 @@ async def handle_callback(request: Request):
                             
                     elif text.lower() in ['!摘要', '！摘要']:
                         if len(messages) > 1:  # 確保有對話內容可以摘要
-                            model = genai.GenerativeModel(gemini_model)
-                            response = model.generate_content(
-                                f'Summary the following message in Traditional Chinese by less 5 list points. \n{messages}')
-                            reply_msg = response.text
-                            # 記錄摘要回應
-                            messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
+                            try:
+                                model = genai.GenerativeModel(gemini_model)
+                                # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
+                                gemini_messages = []
+                                for msg in messages:
+                                    gemini_msg = {
+                                        'role': msg['role'],
+                                        'parts': msg['parts']
+                                    }
+                                    gemini_messages.append(gemini_msg)
+                                
+                                response = model.generate_content(
+                                    f'Summary the following message in Traditional Chinese by less 5 list points. \n{gemini_messages}')
+                                reply_msg = response.text
+                                # 記錄摘要回應
+                                messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
+                            except Exception as e:
+                                logging.error(f"Error generating summary: {e}")
+                                reply_msg = "抱歉，產生摘要時發生錯誤，請稍後再試。"
                         else:
                             reply_msg = '目前沒有足夠的對話紀錄可以摘要'
                             messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
@@ -189,29 +208,48 @@ async def handle_callback(request: Request):
                         # 幫助訊息不記錄到對話歷史
                         
                     elif is_ai_question:
-                        # AI 問答模式：一次性回答，不記錄到對話歷史
-                        model = genai.GenerativeModel(gemini_model)
-                        # 移除 @ 提及部分，只保留問題
-                        clean_question = text
-                        if hasattr(event.message, 'mention') and event.message.mention:
-                            # 如果有 mention 資訊，移除被提及的部分
-                            mention = event.message.mention
-                            for mentioned_user in mention.mentionees:
-                                if mentioned_user.user_id:
-                                    # 簡單的文字清理，移除可能的 @ 符號
-                                    clean_question = text.replace('@', '').strip()
-                        
-                        response = model.generate_content(f"請用繁體中文回答以下問題：{clean_question}")
-                        reply_msg = response.text
-                        # AI 問答不記錄到對話歷史，所以移除剛加入的訊息
-                        messages.pop()  # 移除剛才加入的用戶訊息
+                        # AI 問答模式：一次性回答，不記錄到對話歷史（群組中的 @ 提及）
+                        try:
+                            model = genai.GenerativeModel(gemini_model)
+                            # 移除 @ 提及部分，只保留問題
+                            clean_question = text
+                            if hasattr(event.message, 'mention') and event.message.mention:
+                                # 如果有 mention 資訊，移除被提及的部分
+                                mention = event.message.mention
+                                for mentioned_user in mention.mentionees:
+                                    if mentioned_user.user_id:
+                                        # 簡單的文字清理，移除可能的 @ 符號
+                                        clean_question = text.replace('@', '').strip()
+                            
+                            response = model.generate_content(f"請用繁體中文回答以下問題：{clean_question}")
+                            reply_msg = response.text
+                            # AI 問答不記錄到對話歷史，所以移除剛加入的訊息
+                            messages.pop()  # 移除剛才加入的用戶訊息
+                        except Exception as e:
+                            logging.error(f"Error in AI question mode: {e}")
+                            reply_msg = "抱歉，處理您的問題時發生錯誤，請稍後再試。"
+                            messages.pop()  # 移除剛才加入的用戶訊息
                             
                     else:
-                        # 一般對話（只在私人對話中）
-                        model = genai.GenerativeModel(gemini_model)
-                        response = model.generate_content(messages)
-                        reply_msg = response.text
-                        messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
+                        # 一般對話（私人對話或群組中的其他情況）
+                        try:
+                            model = genai.GenerativeModel(gemini_model)
+                            # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
+                            gemini_messages = []
+                            for msg in messages:
+                                gemini_msg = {
+                                    'role': msg['role'],
+                                    'parts': msg['parts']
+                                }
+                                gemini_messages.append(gemini_msg)
+                            
+                            response = model.generate_content(gemini_messages)
+                            reply_msg = response.text
+                            messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
+                            logging.info(f"Generated AI response for general conversation: {reply_msg[:50]}...")
+                        except Exception as e:
+                            logging.error(f"Error in general conversation: {e}")
+                            reply_msg = "抱歉，處理您的訊息時發生錯誤，請稍後再試。"
                 
                 # 更新 Firebase 中的對話紀錄
                 # AI 問答模式和幫助訊息不記錄到對話歷史

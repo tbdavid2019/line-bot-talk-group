@@ -31,7 +31,8 @@ Line @377mwhqu
 
 > 點子來自：「[如何開發一個「LINE Bot 群組聊天摘要生成器](https://engineering.linecorp.com/zh-hant/blog/linebot-chatgpt)」
 
-> 原始摘要王v3 來自 https://github.com/louis70109/linebot-gemini-summarize.git  感謝原作者
+> 最原始代碼 來自 https://github.com/louis70109/linebot-gemini-summarize.git  感謝原作者
+
 
 
 ## 功能

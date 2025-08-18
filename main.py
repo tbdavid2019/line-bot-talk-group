@@ -50,15 +50,70 @@ parser = WebhookParser(channel_secret)
 firebase_url = os.getenv('FIREBASE_URL')
 gemini_key = os.getenv('GEMINI_API_KEY')
 gemini_model = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+bot_line_id = os.getenv('LINE_BOT_ID', '377mwhqu')  # Bot 的 LINE ID
 
 
 # Initialize the Gemini Pro API
 genai.configure(api_key=gemini_key)
 
 
+def is_bot_mentioned(event, bot_id=None):
+    """
+    檢查是否 Bot 被提及
+    
+    Args:
+        event: LINE webhook event
+        bot_id: Bot 的 LINE ID（可選）
+    
+    Returns:
+        bool: True 如果 Bot 被提及，False 否則
+    """
+    if not isinstance(event.message, TextMessageContent):
+        return False
+    
+    text = event.message.text
+    mention = getattr(event.message, 'mention', None)
+    
+    # 方法1: 檢查 mention 物件中是否包含特定的用戶ID
+    if mention and hasattr(mention, 'mentionees'):
+        # 注意：這需要知道 Bot 的實際 user_id，通常格式為 U開頭
+        # 但我們可能無法直接獲取到 Bot 自己的 user_id
+        pass
+    
+    # 方法2: 檢查文字中是否包含 Bot 的官方 ID
+    if bot_id:
+        # 檢查是否包含 @bot_id 格式（確保 @ 前面沒有其他字符）
+        import re
+        bot_patterns = [
+            rf'(?<![a-zA-Z0-9])@{re.escape(bot_id)}(?![a-zA-Z0-9])',
+            rf'(?<![a-zA-Z0-9])＠{re.escape(bot_id)}(?![a-zA-Z0-9])',
+            rf'(?<![a-zA-Z0-9])@{re.escape(bot_id.lower())}(?![a-zA-Z0-9])',
+            rf'(?<![a-zA-Z0-9])＠{re.escape(bot_id.lower())}(?![a-zA-Z0-9])'
+        ]
+        
+        for pattern in bot_patterns:
+            if re.search(pattern, text):
+                logging.info(f"Bot mentioned with pattern: {pattern}")
+                return True
+    
+    # 方法3: 檢查是否有 mention 且文字包含關鍵詞
+    if mention:
+        # 檢查常見的 Bot 呼叫方式
+        bot_keywords = ['bot', 'Bot', 'BOT', '機器人', '摘要王']
+        if any(keyword in text for keyword in bot_keywords):
+            logging.info(f"Bot mentioned with keyword in text: {text}")
+            return True
+    
+    return False
+
+
 @app.get("/health")
 async def health():
     return 'ok'
+
+@app.get("/")
+async def root():
+    return {"message": "LINE Bot is running", "status": "ok"}
 
 
 @app.post("/webhooks/line")
@@ -100,21 +155,20 @@ async def handle_callback(request: Request):
             # 決定是否要回應
             should_reply = False
             is_ai_question = False  # 是否為 AI 問答模式
-            special_commands = ['!清空', '!摘要', '！清空', '！摘要', '!help', '!幫助', '！help', '！幫助']
+            special_commands = ['!清空', '!clean',  '!摘要','!總結','!summary', '！清空', '！摘要', '!help', '!幫助', '！help', '！幫助']
             
             if event.source.type == 'group':
-                # 檢查是否被 @ 提及（真正的 mention）
-                mention = getattr(event.message, 'mention', None)
-                has_mention = mention is not None
+                # 檢查是否真的提及了 Bot
+                bot_mentioned = is_bot_mentioned(event, bot_line_id)
                 
                 # 檢查是否包含特殊指令
                 has_special_command = any(cmd in text.lower() for cmd in special_commands)
                 
-                if has_mention and not has_special_command:
-                    # 被 @ 提及但不是特殊指令 = AI 問答模式
+                if bot_mentioned and not has_special_command:
+                    # Bot 被提及但不是特殊指令 = AI 問答模式
                     should_reply = True
                     is_ai_question = True
-                    logging.info(f"Group AI question mode: '{text}'")
+                    logging.info(f"Bot mentioned - AI question mode: '{text}'")
                 elif has_special_command:
                     # 特殊指令
                     should_reply = True
@@ -151,7 +205,7 @@ async def handle_callback(request: Request):
                 
                 # 只有在需要回應時才處理
                 if should_reply:
-                    if text.lower() in ['!清空', '！清空']:
+                    if text.lower() in ['!清空', '！清空', '!clean']:
                         try:
                             fdb.delete(user_chat_path, 'messages')
                             reply_msg = '------對話歷史紀錄已經清空------'
@@ -160,8 +214,8 @@ async def handle_callback(request: Request):
                         except Exception as e:
                             logging.error(f"Failed to clear Firebase data: {e}")
                             reply_msg = '清空對話記錄時發生錯誤，請稍後再試'
-                            
-                    elif text.lower() in ['!摘要', '！摘要']:
+
+                    elif text.lower() in ['!摘要', '！摘要', '!總結', '！總結', '！summary']:
                         if len(messages) > 1:  # 確保有對話內容可以摘要
                             try:
                                 model = genai.GenerativeModel(gemini_model)

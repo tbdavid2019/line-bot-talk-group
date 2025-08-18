@@ -47,11 +47,13 @@ Line @377mwhqu
 
 - **私人訊息**：Bot 會回應所有訊息
 - **群組訊息**：
-  - **@ 提及 + 問題**：進入 AI 問答模式（一次性回答，不記錄到對話歷史）
-    - 例如：`@Bot 什麼是梯度下降？`
+  - **精確 @ 提及**：進入 AI 問答模式（一次性回答，不記錄到對話歷史）
+    - `@377mwhqu 你好` - 使用官方 ID
+    - `@Bot 什麼是 AI？` - 使用關鍵詞（需要真正的 mention）
+    - `@機器人 幫我解釋` - 使用中文關鍵詞（需要真正的 mention）
   - **特殊指令**：
-    - `!清空` 或 `！清空` - 清空對話歷史紀錄
-    - `!摘要` 或 `！摘要` - 產生訊息摘要
+    - `!清空` 或 `！清空` `！clean` - 清空對話歷史紀錄
+    - `!摘要` 或 `！摘要` `！總結` `！summary` - 產生訊息摘要
     - `!help` 或 `!幫助` - 顯示使用說明
   - 其他情況下不會回應，但會記錄訊息供摘要功能使用
 
@@ -64,15 +66,18 @@ Line @377mwhqu
 
 ## 🆕 最新功能
 
-### 1. AI 問答模式
-在群組中 @ 機器人即可進行一次性問答：
+### 1. 精確 AI 問答模式
+在群組中精確 @ 機器人即可進行一次性問答：
 ```
-@Bot 什麼是梯度下降？
-@機器人 Python 怎麼學？
+@377mwhqu 什麼是梯度下降？     # 使用官方 ID（推薦）
+@Bot Python 怎麼學？          # 使用關鍵詞 + mention
+@機器人 請幫我解釋 AI          # 使用中文關鍵詞 + mention
 ```
+- ✅ 精確檢測：避免誤觸發（如 `@john` 不會觸發 Bot）
 - ✅ 一次性回答，問完就結束
 - ✅ 不記錄到對話歷史（避免影響摘要）
 - ✅ 自動使用繁體中文回答
+- ✅ 支援官方 ID 和關鍵詞檢測
 
 ### 2. 幫助系統
 使用以下指令獲得完整操作說明：
@@ -198,11 +203,15 @@ Bot: ------對話歷史紀錄已經清空------
 
 - `LINE_CHANNEL_SECRET`: 您的 LINE Bot Channel 密鑰
 - `LINE_CHANNEL_ACCESS_TOKEN`: 您的 LINE Bot Channel 令牌
+- `LINE_BOT_ID`: 您的 LINE Bot 官方 ID（可選）
+  - 預設值: `377mwhqu`
+  - 用於精確檢測 @ 提及，避免誤觸發
 - `FIREBASE_URL`: 您的 Firebase 資料庫 URL
   - Example: https://OOOXXX.firebaseio.com/
 - `GEMINI_API_KEY`: 您的 Gemini API 金鑰
 - `GEMINI_MODEL`: 使用的 Gemini 模型（可選）
   - 預設值: `gemini-2.5-flash`
+  - 其他選項: `gemini-1.5-flash`, `gemini-1.5-pro` 等
   - 其他選項: `gemini-1.5-flash`, `gemini-1.5-pro` 等
 
 如果您不在生產環境，請使用 `.env` 檔案來設定這些變數。

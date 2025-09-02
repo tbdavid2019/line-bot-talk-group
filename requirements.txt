@@ -4,3 +4,6 @@ line-bot-sdk
 git+https://github.com/ozgur/python-firebase
 grpcio
 google.generativeai
+google-genai
+google-cloud-storage
+Pillow

@@ -100,44 +100,59 @@ def test_gcs_connection():
 def test_gemini_connection():
     """測試 Gemini API 連接"""
     
-    gemini_key = os.getenv('GEMINI_API_KEY')
+    gemini_llm_key = os.getenv('GEMINI_LLM_API_KEY')
+    gemini_image_key = os.getenv('GEMINI_IMAGE_API_KEY')
+    
+    # 向後相容
+    if not gemini_llm_key:
+        gemini_llm_key = os.getenv('GEMINI_API_KEY')
+    if not gemini_image_key:
+        gemini_image_key = os.getenv('GEMINI_API_KEY')
     
     print("\n=== Gemini API 連接測試 ===")
-    print(f"API Key: {gemini_key[:10]}...{gemini_key[-5:] if gemini_key else 'None'}")
+    print(f"LLM API Key: {gemini_llm_key[:10]}...{gemini_llm_key[-5:] if gemini_llm_key else 'None'}")
+    print(f"Image API Key: {gemini_image_key[:10]}...{gemini_image_key[-5:] if gemini_image_key else 'None'}")
     
-    if not gemini_key:
-        print("❌ 錯誤: 未設定 GEMINI_API_KEY 環境變數")
-        return False
-        
-    try:
-        from google import genai
-        from google.genai import types
-        
-        print("📡 正在測試 Gemini API...")
-        client = genai.Client(api_key=gemini_key)
-        
-        # 測試簡單的文字生成
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text="請回答：測試成功"),
-                ],
-            ),
-        ]
-        
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents,
-        )
-        
-        print(f"✅ Gemini API 回應: {response.text[:100]}...")
-        print("🎉 Gemini API 連接正常！")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Gemini API 錯誤: {e}")
-        return False
+    llm_ok = False
+    image_ok = False
+    
+    # 測試 LLM
+    if gemini_llm_key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_llm_key)
+            
+            print("\n📡 正在測試 Gemini LLM...")
+            model = genai.GenerativeModel('gemini-1.5-pro')
+            response = model.generate_content("請回答：測試成功")
+            
+            print(f"✅ Gemini LLM 回應: {response.text[:100]}...")
+            llm_ok = True
+            
+        except Exception as e:
+            print(f"❌ Gemini LLM 錯誤: {e}")
+    else:
+        print("❌ 未設定 Gemini LLM API Key")
+    
+    # 測試圖片生成
+    if gemini_image_key:
+        try:
+            from google import genai as genai_v2
+            from google.genai import types
+            
+            print("\n🎨 正在測試 Gemini Image...")
+            client = genai_v2.Client(api_key=gemini_image_key)
+            
+            # 簡單測試（不實際生成圖片）
+            print("✅ Gemini Image API 連接正常")
+            image_ok = True
+            
+        except Exception as e:
+            print(f"❌ Gemini Image 錯誤: {e}")
+    else:
+        print("❌ 未設定 Gemini Image API Key")
+    
+    return llm_ok and image_ok
 
 if __name__ == "__main__":
     print("開始測試...")

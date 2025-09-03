@@ -60,8 +60,23 @@ parser = WebhookParser(channel_secret)
 
 
 firebase_url = os.getenv('FIREBASE_URL')
-gemini_key = os.getenv('GEMINI_API_KEY')
-gemini_model = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+
+# Gemini LLM 設定（文字對話、摘要等）
+gemini_llm_key = os.getenv('GEMINI_LLM_API_KEY')
+gemini_llm_model = os.getenv('GEMINI_LLM_MODEL', 'gemini-1.5-pro')
+
+# Gemini Image 設定（圖片生成）
+gemini_image_key = os.getenv('GEMINI_IMAGE_API_KEY')
+gemini_image_model = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-2.5-flash-image-preview')
+
+# 為了向後相容，如果沒有設定分離的 key，就使用舊的設定
+if not gemini_llm_key:
+    gemini_llm_key = os.getenv('GEMINI_API_KEY')
+if not gemini_image_key:
+    gemini_image_key = os.getenv('GEMINI_API_KEY')
+if not gemini_llm_model and os.getenv('GEMINI_MODEL'):
+    gemini_llm_model = os.getenv('GEMINI_MODEL')
+
 bot_line_id = os.getenv('LINE_BOT_ID', '377mwhqu')  # Bot 的 LINE ID
 
 # Google Cloud Storage 設定
@@ -69,8 +84,8 @@ gcs_bucket_name = os.getenv('GCS_BUCKET_NAME')  # 你的 Google Cloud Storage bu
 gcs_credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')  # Google Cloud 認證檔案路徑
 
 
-# Initialize the Gemini Pro API
-genai.configure(api_key=gemini_key)
+# Initialize the Gemini LLM API
+genai.configure(api_key=gemini_llm_key)
 
 # Initialize Google Cloud Storage client
 if gcs_credentials_path and gcs_bucket_name:
@@ -166,11 +181,16 @@ async def generate_image_with_gemini(prompt):
     """
     logging.info(f"Starting generate_image_with_gemini with prompt: {prompt}")
     
+    # 檢查圖片生成 API 設定
+    if not gemini_image_key:
+        logging.error("Gemini Image API key not configured")
+        return False, "圖片生成功能未設定 API Key"
+    
     try:
-        logging.info(f"Creating Gemini client with API key: {gemini_key[:10]}...{gemini_key[-5:] if gemini_key else 'None'}")
-        client = genai_v2.Client(api_key=gemini_key)
-        model = "gemini-2.5-flash-image-preview"
-        logging.info(f"Using model: {model}")
+        logging.info(f"Creating Gemini Image client with API key: {gemini_image_key[:10]}...{gemini_image_key[-5:] if gemini_image_key else 'None'}")
+        client = genai_v2.Client(api_key=gemini_image_key)
+        model = gemini_image_model
+        logging.info(f"Using image model: {model}")
         
         contents = [
             types.Content(
@@ -420,7 +440,7 @@ async def handle_callback(request: Request):
                     elif text.lower() in ['!摘要', '！摘要', '!總結', '！總結', '！summary']:
                         if len(messages) > 1:  # 確保有對話內容可以摘要
                             try:
-                                model = genai.GenerativeModel(gemini_model)
+                                model = genai.GenerativeModel(gemini_llm_model)
                                 # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
                                 gemini_messages = []
                                 for msg in messages:
@@ -549,7 +569,7 @@ async def handle_callback(request: Request):
                     elif is_ai_question:
                         # AI 問答模式：一次性回答，不記錄到對話歷史（群組中的 @ 提及）
                         try:
-                            model = genai.GenerativeModel(gemini_model)
+                            model = genai.GenerativeModel(gemini_llm_model)
                             # 移除 @ 提及部分，只保留問題
                             clean_question = text
                             if hasattr(event.message, 'mention') and event.message.mention:
@@ -572,7 +592,7 @@ async def handle_callback(request: Request):
                     else:
                         # 一般對話（私人對話或群組中的其他情況）
                         try:
-                            model = genai.GenerativeModel(gemini_model)
+                            model = genai.GenerativeModel(gemini_llm_model)
                             # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
                             gemini_messages = []
                             for msg in messages:

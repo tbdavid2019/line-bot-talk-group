@@ -156,8 +156,10 @@ async def upload_image_to_gcs(image_data, filename):
         # 我們不需要呼叫 make_public()，而是直接使用公開 URL
         logging.info("Generating public URL (uniform bucket-level access enabled)...")
         
-        # 直接構建公開 URL
-        public_url = f"https://storage.googleapis.com/{bucket.name}/{unique_filename}"
+        # 直接構建公開 URL，確保正確編碼
+        from urllib.parse import quote
+        encoded_filename = quote(unique_filename, safe='/')
+        public_url = f"https://storage.googleapis.com/{bucket.name}/{encoded_filename}"
         logging.info(f"Image uploaded successfully: {public_url}")
         logging.info(f"Blob exists: {blob.exists()}")
         return public_url
@@ -269,8 +271,8 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
                         file_extension = mimetypes.guess_extension(inline_data.mime_type) or '.png'
                         logging.info(f"File extension: {file_extension}")
                         
-                        # 建立檔案名稱
-                        safe_prompt = "".join(c for c in prompt if c.isalnum() or c in (' ', '-', '_')).rstrip()[:30]
+                        # 建立檔案名稱 (移除空格，使用底線替代)
+                        safe_prompt = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in prompt).rstrip()[:30]
                         filename = f"gemini_image_{safe_prompt}{file_extension}"
                         logging.info(f"Generated filename: {filename}")
                         

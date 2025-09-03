@@ -5,6 +5,7 @@ import base64
 import mimetypes
 import uuid
 import tempfile
+import asyncio
 from datetime import datetime
 if os.getenv('API_ENV') != 'production':
     from dotenv import load_dotenv
@@ -19,6 +20,7 @@ from linebot.v3.messaging import (
     AsyncMessagingApi,
     Configuration,
     ReplyMessageRequest,
+    PushMessageRequest,
     TextMessage,
     ImageMessage)
 from linebot.v3.exceptions import (
@@ -169,12 +171,14 @@ async def upload_image_to_gcs(image_data, filename):
         return None
 
 
-async def generate_image_with_gemini(prompt):
+async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
     """
     使用 Gemini 生成圖片
     
     Args:
         prompt: 圖片生成的提示詞
+        max_retries: 最大重試次數
+        retry_delay: 重試延遲（秒）
     
     Returns:
         tuple: (成功狀態, 結果訊息或圖片URL)
@@ -186,97 +190,117 @@ async def generate_image_with_gemini(prompt):
         logging.error("Gemini Image API key not configured")
         return False, "圖片生成功能未設定 API Key"
     
-    try:
-        logging.info(f"Creating Gemini Image client with API key: {gemini_image_key[:10]}...{gemini_image_key[-5:] if gemini_image_key else 'None'}")
-        client = genai_v2.Client(api_key=gemini_image_key)
-        model = gemini_image_model
-        logging.info(f"Using image model: {model}")
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            logging.info(f"Retry attempt {attempt}/{max_retries} after {retry_delay} seconds...")
+            await asyncio.sleep(retry_delay)
         
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=f"請生成一張關於「{prompt}」的圖片"),
-                ],
-            ),
-        ]
-        
-        generate_content_config = types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"],
-        )
-        
-        logging.info("Starting content generation stream...")
-        
-        # 生成內容
-        image_url = None
-        text_response = ""
-        chunk_count = 0
-        
-        for chunk in client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
-        ):
-            chunk_count += 1
-            logging.info(f"Processing chunk {chunk_count}")
+        try:
+            logging.info(f"Creating Gemini Image client with API key: {gemini_image_key[:10]}...{gemini_image_key[-5:] if gemini_image_key else 'None'}")
+            client = genai_v2.Client(api_key=gemini_image_key)
+            model = gemini_image_model
+            logging.info(f"Using image model: {model} (attempt {attempt + 1})")
             
-            if (
-                chunk.candidates is None
-                or chunk.candidates[0].content is None
-                or chunk.candidates[0].content.parts is None
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=f"請生成一張關於「{prompt}」的圖片"),
+                    ],
+                ),
+            ]
+            
+            generate_content_config = types.GenerateContentConfig(
+                response_modalities=["IMAGE", "TEXT"],
+            )
+            
+            logging.info("Starting content generation stream...")
+            
+            # 生成內容
+            image_url = None
+            text_response = ""
+            chunk_count = 0
+            
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=generate_content_config,
             ):
-                logging.warning(f"Chunk {chunk_count} has no valid content")
-                continue
+                chunk_count += 1
+                logging.info(f"Processing chunk {chunk_count}")
                 
-            part = chunk.candidates[0].content.parts[0]
-            logging.info(f"Chunk {chunk_count} part type: {type(part)}")
+                if (
+                    chunk.candidates is None
+                    or chunk.candidates[0].content is None
+                    or chunk.candidates[0].content.parts is None
+                ):
+                    logging.warning(f"Chunk {chunk_count} has no valid content")
+                    continue
+                    
+                part = chunk.candidates[0].content.parts[0]
+                logging.info(f"Chunk {chunk_count} part type: {type(part)}")
+                
+                # 處理圖片資料
+                if part.inline_data and part.inline_data.data:
+                    logging.info(f"Found image data in chunk {chunk_count}")
+                    inline_data = part.inline_data
+                    image_data = inline_data.data
+                    logging.info(f"Image data size: {len(image_data)} bytes")
+                    logging.info(f"Image MIME type: {inline_data.mime_type}")
+                    
+                    file_extension = mimetypes.guess_extension(inline_data.mime_type) or '.png'
+                    logging.info(f"File extension: {file_extension}")
+                    
+                    # 建立檔案名稱
+                    safe_prompt = "".join(c for c in prompt if c.isalnum() or c in (' ', '-', '_')).rstrip()[:30]
+                    filename = f"gemini_image_{safe_prompt}{file_extension}"
+                    logging.info(f"Generated filename: {filename}")
+                    
+                    # 上傳到 Google Cloud Storage
+                    logging.info("Starting upload to GCS...")
+                    image_url = await upload_image_to_gcs(image_data, filename)
+                    logging.info(f"Upload result: {image_url}")
+                    
+                # 處理文字回應
+                elif chunk.text:
+                    text_response += chunk.text
+                    logging.info(f"Received text in chunk {chunk_count}: {chunk.text[:100]}...")
+                else:
+                    logging.info(f"Chunk {chunk_count} has no image or text data")
             
-            # 處理圖片資料
-            if part.inline_data and part.inline_data.data:
-                logging.info(f"Found image data in chunk {chunk_count}")
-                inline_data = part.inline_data
-                image_data = inline_data.data
-                logging.info(f"Image data size: {len(image_data)} bytes")
-                logging.info(f"Image MIME type: {inline_data.mime_type}")
-                
-                file_extension = mimetypes.guess_extension(inline_data.mime_type) or '.png'
-                logging.info(f"File extension: {file_extension}")
-                
-                # 建立檔案名稱
-                safe_prompt = "".join(c for c in prompt if c.isalnum() or c in (' ', '-', '_')).rstrip()[:30]
-                filename = f"gemini_image_{safe_prompt}{file_extension}"
-                logging.info(f"Generated filename: {filename}")
-                
-                # 上傳到 Google Cloud Storage
-                logging.info("Starting upload to GCS...")
-                image_url = await upload_image_to_gcs(image_data, filename)
-                logging.info(f"Upload result: {image_url}")
-                
-            # 處理文字回應
-            elif chunk.text:
-                text_response += chunk.text
-                logging.info(f"Received text in chunk {chunk_count}: {chunk.text[:100]}...")
+            logging.info(f"Finished processing {chunk_count} chunks")
+            logging.info(f"Final image_url: {image_url}")
+            logging.info(f"Final text_response: {text_response[:200]}...")
+            
+            if image_url:
+                logging.info("Image generation successful")
+                return True, image_url
             else:
-                logging.info(f"Chunk {chunk_count} has no image or text data")
-        
-        logging.info(f"Finished processing {chunk_count} chunks")
-        logging.info(f"Final image_url: {image_url}")
-        logging.info(f"Final text_response: {text_response[:200]}...")
-        
-        if image_url:
-            logging.info("Image generation successful")
-            return True, image_url
-        else:
-            error_msg = f"圖片生成失敗。回應文字：{text_response}" if text_response else "圖片生成失敗，請稍後再試。"
-            logging.error(f"Image generation failed: {error_msg}")
-            return False, error_msg
+                error_msg = f"圖片生成失敗。回應文字：{text_response}" if text_response else "圖片生成失敗，請稍後再試。"
+                logging.error(f"Image generation failed: {error_msg}")
+                return False, error_msg
+                
+        except Exception as e:
+            logging.error(f"Error generating image with Gemini (attempt {attempt + 1}): {e}")
             
-    except Exception as e:
-        logging.error(f"Error generating image with Gemini: {e}")
-        logging.error(f"Exception type: {type(e)}")
-        import traceback
-        logging.error(f"Traceback: {traceback.format_exc()}")
-        return False, f"生成圖片時發生錯誤：{str(e)}"
+            # 檢查是否為配額錯誤
+            error_msg = str(e)
+            is_quota_error = "429" in error_msg and "RESOURCE_EXHAUSTED" in error_msg
+            is_rate_limit = "429" in error_msg
+            
+            if attempt < max_retries and is_rate_limit:
+                logging.info(f"Rate limit hit, will retry in {retry_delay} seconds...")
+                continue
+            else:
+                # 最後一次嘗試或非重試錯誤
+                if is_quota_error:
+                    return False, "❌ 圖片生成配額已用盡，請稍後再試或升級至付費方案。"
+                elif "quota" in error_msg.lower():
+                    return False, "❌ API 配額不足，請檢查您的 Google AI 使用額度。"
+                else:
+                    return False, f"❌ 生成圖片時發生錯誤，請稍後再試。"
+    
+    return False, "❌ 經過多次重試仍無法生成圖片，請稍後再試。"
 
 
 def is_bot_mentioned(event, bot_id=None):
@@ -533,14 +557,18 @@ async def handle_callback(request: Request):
                                     if event.source.type == 'group':
                                         logging.info(f"Sending image to group: {event.source.group_id}")
                                         await line_bot_api.push_message(
-                                            event.source.group_id,
-                                            [image_message]
+                                            PushMessageRequest(
+                                                to=event.source.group_id,
+                                                messages=[image_message]
+                                            )
                                         )
                                     else:
                                         logging.info(f"Sending image to user: {event.source.user_id}")
                                         await line_bot_api.push_message(
-                                            event.source.user_id,
-                                            [image_message]
+                                            PushMessageRequest(
+                                                to=event.source.user_id,
+                                                messages=[image_message]
+                                            )
                                         )
                                     logging.info("Image message sent successfully")
                                     reply_msg = ""  # 不需要額外的文字回應
@@ -551,14 +579,18 @@ async def handle_callback(request: Request):
                                     if event.source.type == 'group':
                                         logging.info(f"Sending error message to group: {event.source.group_id}")
                                         await line_bot_api.push_message(
-                                            event.source.group_id,
-                                            [error_message]
+                                            PushMessageRequest(
+                                                to=event.source.group_id,
+                                                messages=[error_message]
+                                            )
                                         )
                                     else:
                                         logging.info(f"Sending error message to user: {event.source.user_id}")
                                         await line_bot_api.push_message(
-                                            event.source.user_id,
-                                            [error_message]
+                                            PushMessageRequest(
+                                                to=event.source.user_id,
+                                                messages=[error_message]
+                                            )
                                         )
                                     reply_msg = ""  # 不需要額外的文字回應
                         

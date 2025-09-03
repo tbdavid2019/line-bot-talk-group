@@ -152,13 +152,12 @@ async def upload_image_to_gcs(image_data, filename):
         blob.upload_from_string(image_data)
         logging.info("Upload completed successfully")
         
-        # 設定為公開讀取
-        logging.info("Setting blob to public...")
-        blob.make_public()
-        logging.info("Blob made public successfully")
+        # 對於啟用了 uniform bucket-level access 的 bucket，
+        # 我們不需要呼叫 make_public()，而是直接使用公開 URL
+        logging.info("Generating public URL (uniform bucket-level access enabled)...")
         
-        # 返回公開 URL
-        public_url = blob.public_url
+        # 直接構建公開 URL
+        public_url = f"https://storage.googleapis.com/{bucket.name}/{unique_filename}"
         logging.info(f"Image uploaded successfully: {public_url}")
         logging.info(f"Blob exists: {blob.exists()}")
         return public_url

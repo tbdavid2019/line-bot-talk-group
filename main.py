@@ -198,14 +198,27 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
         try:
             logging.info(f"Creating Gemini Image client with API key: {gemini_image_key[:10]}...{gemini_image_key[-5:] if gemini_image_key else 'None'}")
             client = genai_v2.Client(api_key=gemini_image_key)
-            model = gemini_image_model
+            
+            # 使用測試中成功的模型
+            model = "gemini-2.5-flash-image-preview"
             logging.info(f"Using image model: {model} (attempt {attempt + 1})")
             
+            # 使用簡單直接的提示詞，測試證實有效
+            prompts_to_try = [
+                f"Create a photorealistic image of a {prompt}. Do not provide text description, only generate the actual image.",
+                f"Generate image: {prompt}",
+                f"Draw: {prompt}"
+            ]
+            
+            current_prompt = prompts_to_try[min(attempt, len(prompts_to_try) - 1)]
+            logging.info(f"Using prompt strategy {attempt + 1}: {current_prompt[:80]}...")
+            
+            # 使用簡單的內容結構，與測試中成功的相同
             contents = [
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part.from_text(text=f"請生成一張關於「{prompt}」的圖片"),
+                        types.Part.from_text(text=current_prompt),
                     ],
                 ),
             ]
@@ -229,10 +242,14 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
                 chunk_count += 1
                 logging.info(f"Processing chunk {chunk_count}")
                 
+                # 檢查 chunk 是否有有效的 candidates
                 if (
-                    chunk.candidates is None
-                    or chunk.candidates[0].content is None
-                    or chunk.candidates[0].content.parts is None
+                    not hasattr(chunk, 'candidates') or
+                    chunk.candidates is None or
+                    len(chunk.candidates) == 0 or
+                    chunk.candidates[0].content is None or
+                    chunk.candidates[0].content.parts is None or
+                    len(chunk.candidates[0].content.parts) == 0
                 ):
                     logging.warning(f"Chunk {chunk_count} has no valid content")
                     continue
@@ -240,33 +257,47 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
                 part = chunk.candidates[0].content.parts[0]
                 logging.info(f"Chunk {chunk_count} part type: {type(part)}")
                 
-                # 處理圖片資料
-                if part.inline_data and part.inline_data.data:
-                    logging.info(f"Found image data in chunk {chunk_count}")
-                    inline_data = part.inline_data
-                    image_data = inline_data.data
-                    logging.info(f"Image data size: {len(image_data)} bytes")
-                    logging.info(f"Image MIME type: {inline_data.mime_type}")
-                    
-                    file_extension = mimetypes.guess_extension(inline_data.mime_type) or '.png'
-                    logging.info(f"File extension: {file_extension}")
-                    
-                    # 建立檔案名稱
-                    safe_prompt = "".join(c for c in prompt if c.isalnum() or c in (' ', '-', '_')).rstrip()[:30]
-                    filename = f"gemini_image_{safe_prompt}{file_extension}"
-                    logging.info(f"Generated filename: {filename}")
-                    
-                    # 上傳到 Google Cloud Storage
-                    logging.info("Starting upload to GCS...")
-                    image_url = await upload_image_to_gcs(image_data, filename)
-                    logging.info(f"Upload result: {image_url}")
-                    
-                # 處理文字回應
-                elif chunk.text:
-                    text_response += chunk.text
-                    logging.info(f"Received text in chunk {chunk_count}: {chunk.text[:100]}...")
+                # 檢查是否有 inline_data
+                if hasattr(part, 'inline_data') and part.inline_data:
+                    logging.info(f"Found inline_data in chunk {chunk_count}: {type(part.inline_data)}")
+                    if hasattr(part.inline_data, 'data') and part.inline_data.data:
+                        logging.info(f"Found image data in chunk {chunk_count}")
+                        inline_data = part.inline_data
+                        image_data = inline_data.data
+                        logging.info(f"Image data size: {len(image_data)} bytes")
+                        logging.info(f"Image MIME type: {inline_data.mime_type}")
+                        
+                        file_extension = mimetypes.guess_extension(inline_data.mime_type) or '.png'
+                        logging.info(f"File extension: {file_extension}")
+                        
+                        # 建立檔案名稱
+                        safe_prompt = "".join(c for c in prompt if c.isalnum() or c in (' ', '-', '_')).rstrip()[:30]
+                        filename = f"gemini_image_{safe_prompt}{file_extension}"
+                        logging.info(f"Generated filename: {filename}")
+                        
+                        # 上傳到 Google Cloud Storage
+                        logging.info("Starting upload to GCS...")
+                        image_url = await upload_image_to_gcs(image_data, filename)
+                        logging.info(f"Upload result: {image_url}")
+                        
+                        # 一旦找到圖片就跳出迴圈
+                        if image_url:
+                            logging.info("Image found and uploaded successfully, breaking loop")
+                            break
+                    else:
+                        logging.info(f"inline_data exists but no data: {part.inline_data}")
                 else:
-                    logging.info(f"Chunk {chunk_count} has no image or text data")
+                    logging.info(f"No inline_data in chunk {chunk_count}")
+                
+                # 處理文字回應
+                if hasattr(part, 'text') and part.text:
+                    text_response += part.text
+                    logging.info(f"Received text in chunk {chunk_count}: {part.text[:100]}...")
+                elif hasattr(chunk, 'text') and chunk.text:
+                    text_response += chunk.text
+                    logging.info(f"Received text from chunk object in chunk {chunk_count}: {chunk.text[:100]}...")
+                else:
+                    logging.info(f"Chunk {chunk_count} has no text data")
             
             logging.info(f"Finished processing {chunk_count} chunks")
             logging.info(f"Final image_url: {image_url}")
@@ -276,9 +307,11 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
                 logging.info("Image generation successful")
                 return True, image_url
             else:
-                error_msg = f"圖片生成失敗。回應文字：{text_response}" if text_response else "圖片生成失敗，請稍後再試。"
-                logging.error(f"Image generation failed: {error_msg}")
-                return False, error_msg
+                if text_response:
+                    logging.warning(f"Model returned text only, no image generated. Text: {text_response[:200]}")
+                    return False, f"❌ 模型只返回文字說明而未生成圖片。請嘗試更具體的描述，例如：'一位台灣婦女在傳統市場挑選新鮮蔬菜的真實照片'"
+                else:
+                    return False, "❌ 圖片生成失敗，請稍後再試。"
                 
         except Exception as e:
             logging.error(f"Error generating image with Gemini (attempt {attempt + 1}): {e}")
@@ -497,6 +530,7 @@ async def handle_callback(request: Request):
 • !清空 或 ！清空：清空對話記錄
 • !畫圖 [描述] 或 ！畫圖 [描述]：生成圖片
   例：!畫圖 可愛的貓咪在花園裡玩耍
+  提示：使用具體、詳細的描述效果更好
 • !help 或 !幫助：顯示此說明
 
 **私人功能：**

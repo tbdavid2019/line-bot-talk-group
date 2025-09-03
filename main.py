@@ -118,13 +118,14 @@ else:
     bucket = None
 
 
-async def upload_image_to_gcs(image_data, filename):
+async def upload_image_to_gcs(image_data, filename, mime_type="image/png"):
     """
     上傳圖片到 Google Cloud Storage 並返回公開 URL
     
     Args:
         image_data: 圖片的二進位資料
         filename: 檔案名稱
+        mime_type: 圖片的 MIME 類型，預設為 image/png
     
     Returns:
         str: 圖片的公開 URL，如果失敗則返回 None
@@ -139,9 +140,11 @@ async def upload_image_to_gcs(image_data, filename):
         return None
     
     try:
-        # 建立唯一的檔案名稱
+        # 建立唯一的檔案名稱 (確保沒有空格和特殊字符)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unique_filename = f"linebot_images/{timestamp}_{filename}"
+        # 進一步清理檔案名稱，確保只包含安全字符
+        safe_filename = "".join(c if c.isalnum() or c in ('-', '_', '.') else '_' for c in filename)
+        unique_filename = f"linebot_images/{timestamp}_{safe_filename}"
         logging.info(f"Generated unique filename: {unique_filename}")
         
         # 上傳到 GCS
@@ -149,8 +152,9 @@ async def upload_image_to_gcs(image_data, filename):
         blob = bucket.blob(unique_filename)
         
         logging.info("Starting upload to GCS...")
-        blob.upload_from_string(image_data)
-        logging.info("Upload completed successfully")
+        # 設定正確的 content_type 以確保圖片能正確顯示
+        blob.upload_from_string(image_data, content_type=mime_type)
+        logging.info(f"Upload completed successfully with content_type: {mime_type}")
         
         # 對於啟用了 uniform bucket-level access 的 bucket，
         # 我們不需要呼叫 make_public()，而是直接使用公開 URL
@@ -278,7 +282,7 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
                         
                         # 上傳到 Google Cloud Storage
                         logging.info("Starting upload to GCS...")
-                        image_url = await upload_image_to_gcs(image_data, filename)
+                        image_url = await upload_image_to_gcs(image_data, filename, inline_data.mime_type)
                         logging.info(f"Upload result: {image_url}")
                         
                         # 一旦找到圖片就跳出迴圈

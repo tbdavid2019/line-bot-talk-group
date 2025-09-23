@@ -572,66 +572,32 @@ async def handle_callback(request: Request):
                             else:
                                 logging.info(f"Starting image generation process with prompt: '{prompt}'")
                                 
-                                # 先發送"生成中"的訊息
-                                await line_bot_api.reply_message(
-                                    ReplyMessageRequest(
-                                        reply_token=event.reply_token,
-                                        messages=[TextMessage(text=f"🎨 正在生成圖片：{prompt}\n請稍候...")]
-                                    ))
-                                logging.info("Sent 'generating' message to user")
-                                
-                                # 生成圖片
+                                # 不先發送"生成中"訊息，直接生成圖片後一次回覆
                                 logging.info("Calling generate_image_with_gemini...")
                                 success, result = await generate_image_with_gemini(prompt)
                                 logging.info(f"Image generation result - success: {success}, result: {result}")
                                 
                                 if success:
-                                    logging.info("Image generation successful, sending image message")
-                                    # 發送圖片訊息
+                                    logging.info("Image generation successful, sending reply with image")
+                                    # 使用 reply_message 一次發送文字和圖片（避免 push_message 額度問題）
                                     image_message = ImageMessage(
                                         original_content_url=result,
                                         preview_image_url=result
                                     )
-                                    # 使用 push message 發送圖片（因為已經用了 reply_token）
-                                    if event.source.type == 'group':
-                                        logging.info(f"Sending image to group: {event.source.group_id}")
-                                        await line_bot_api.push_message(
-                                            PushMessageRequest(
-                                                to=event.source.group_id,
-                                                messages=[image_message]
-                                            )
+                                    success_text = TextMessage(text=f"🎨 圖片生成完成：{prompt}")
+                                    
+                                    await line_bot_api.reply_message(
+                                        ReplyMessageRequest(
+                                            reply_token=event.reply_token,
+                                            messages=[success_text, image_message]
                                         )
-                                    else:
-                                        logging.info(f"Sending image to user: {event.source.user_id}")
-                                        await line_bot_api.push_message(
-                                            PushMessageRequest(
-                                                to=event.source.user_id,
-                                                messages=[image_message]
-                                            )
-                                        )
-                                    logging.info("Image message sent successfully")
-                                    reply_msg = ""  # 不需要額外的文字回應
+                                    )
+                                    logging.info("Image and text sent successfully via reply_message")
+                                    reply_msg = ""  # 已經回覆了
                                 else:
                                     logging.error(f"Image generation failed: {result}")
-                                    # 發送錯誤訊息
-                                    error_message = TextMessage(text=f"❌ {result}")
-                                    if event.source.type == 'group':
-                                        logging.info(f"Sending error message to group: {event.source.group_id}")
-                                        await line_bot_api.push_message(
-                                            PushMessageRequest(
-                                                to=event.source.group_id,
-                                                messages=[error_message]
-                                            )
-                                        )
-                                    else:
-                                        logging.info(f"Sending error message to user: {event.source.user_id}")
-                                        await line_bot_api.push_message(
-                                            PushMessageRequest(
-                                                to=event.source.user_id,
-                                                messages=[error_message]
-                                            )
-                                        )
-                                    reply_msg = ""  # 不需要額外的文字回應
+                                    # 使用 reply_message 發送錯誤訊息
+                                    reply_msg = f"❌ 圖片生成失敗：{result}"
                         
                         # 圖片生成指令不記錄到對話歷史
                         messages.pop()  # 移除剛才加入的用戶訊息

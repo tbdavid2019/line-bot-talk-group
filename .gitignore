@@ -27,3 +27,5 @@ venv
 serviceAccountKey.json
 .venv/
 .env
+.env2
+svc-gcs-uploader-key.json

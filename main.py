@@ -65,11 +65,11 @@ firebase_url = os.getenv('FIREBASE_URL')
 
 # Gemini LLM 設定（文字對話、摘要等）
 gemini_llm_key = os.getenv('GEMINI_LLM_API_KEY')
-gemini_llm_model = os.getenv('GEMINI_LLM_MODEL', 'gemini-1.5-pro')
+gemini_llm_model = os.getenv('GEMINI_LLM_MODEL', 'gemini-flash-latest')
 
 # Gemini Image 設定（圖片生成）
 gemini_image_key = os.getenv('GEMINI_IMAGE_API_KEY')
-gemini_image_model = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-2.5-flash-image-preview')
+gemini_image_model = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-3-pro-image-preview')
 
 # 為了向後相容，如果沒有設定分離的 key，就使用舊的設定
 if not gemini_llm_key:
@@ -204,8 +204,8 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
             logging.info(f"Creating Gemini Image client with API key: {gemini_image_key[:10]}...{gemini_image_key[-5:] if gemini_image_key else 'None'}")
             client = genai_v2.Client(api_key=gemini_image_key)
             
-            # 使用測試中成功的模型
-            model = "gemini-2.5-flash-image-preview"
+            # 使用環境變數設定的模型
+            model = gemini_image_model
             logging.info(f"Using image model: {model} (attempt {attempt + 1})")
             
             # 使用簡單直接的提示詞，測試證實有效

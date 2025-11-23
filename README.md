@@ -9,6 +9,13 @@ Line @377mwhqu
 
 ## 🆕 版本更新
 
+### v3.2 (2025-11-23)
+- ✅ 修正圖片生成模型參數化問題
+  - 移除硬編碼的模型名稱
+  - 現在正確使用環境變數 `GEMINI_IMAGE_MODEL` 設定
+  - 支援使用 `gemini-3-pro-image-preview` 等新模型
+- ⚠️ **重要**：更新程式碼後需要重新建置並部署 Docker 容器才能生效
+
 ### v3.1 (2025-08-15)
 - ✅ 新增 AI 問答模式（@ 機器人功能）
 - ✅ 新增幫助系統 (!help)
@@ -212,6 +219,25 @@ Bot: ------對話歷史紀錄已經清空------
 - `GEMINI_MODEL`: 使用的 Gemini 模型（可選）
   - 預設值: `gemini-2.5-flash`
   - 其他選項: `gemini-1.5-flash`, `gemini-1.5-pro` 等
+
+#### 圖片生成相關環境變數（v3.2+）
+
+- `GEMINI_IMAGE_API_KEY`: 圖片生成專用的 Gemini API 金鑰（可選）
+  - 如未設定，將使用 `GEMINI_API_KEY`
+- `GEMINI_IMAGE_MODEL`: 圖片生成使用的模型（可選）
+  - 預設值: `gemini-3-pro-image-preview`
+  - 其他選項: `gemini-2.5-flash-image-preview`
+  - **注意**：此環境變數會影響圖片生成的模型選擇
+- `GCS_BUCKET_NAME`: Google Cloud Storage bucket 名稱（圖片生成必須）
+- `GOOGLE_APPLICATION_CREDENTIALS`: GCS 認證檔案路徑（圖片生成必須）
+
+#### 其他環境變數
+
+- `GEMINI_LLM_API_KEY`: 文字對話專用的 Gemini API 金鑰（可選）
+  - 如未設定，將使用 `GEMINI_API_KEY`
+- `GEMINI_LLM_MODEL`: 文字對話使用的模型（可選）
+  - 預設值: `gemini-flash-latest`
+  - 其他選項: `gemini-1.5-flash`, `gemini-1.5-pro` 等
   - 其他選項: `gemini-1.5-flash`, `gemini-1.5-pro` 等
 
 如果您不在生產環境，請使用 `.env` 檔案來設定這些變數。
@@ -286,12 +312,54 @@ LINE_CHANNEL_SECRET=你的_LINE_CHANNEL_SECRET
 LINE_CHANNEL_ACCESS_TOKEN=你的_LINE_CHANNEL_ACCESS_TOKEN
 FIREBASE_URL=你的_FIREBASE_URL
 GEMINI_API_KEY=你的_GEMINI_API_KEY
+GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
+GCS_BUCKET_NAME=你的_GCS_BUCKET_NAME
+GOOGLE_APPLICATION_CREDENTIALS=/app/你的認證檔案.json
 PORT=8080
 API_ENV=production
 EOF
-
+```
 # 使用 .env 檔案執行容器
 docker run -d -p 8080:8080 --env-file .env --restart unless-stopped linebot-gemini-summarize 
+
+# 1. 停止並刪除舊容器
+docker stop <container_name>
+docker rm <container_name>
+
+# 2. 重新建置映像檔
+docker build -t linebot-gemini .
+
+
+
+docker run -d \
+  --env-file .env \
+  -p 8080:8080 \
+  --name LINE-377mwhqu \
+  linebot-gemini
+
+
+  docker run -d \
+  --env-file .env2 \
+  -p 8081:8080 \
+  --name LINE-113huwec \
+  linebot-gemini
+
+```
+
+**⚠️ 重要提醒：更新程式碼後的部署步驟**
+
+如果您修改了程式碼（如更新模型設定），需要重新建置並部署：
+
+```bash
+# 1. 停止並移除舊容器
+docker stop <container_name>
+docker rm <container_name>
+
+# 2. 重新建置 image
+docker build -t linebot-gemini-summarize .
+
+# 3. 使用新的 image 啟動容器
+docker run -d -p 8080:8080 --env-file .env --restart unless-stopped linebot-gemini-summarize
 ```
 
 #### 使用 Docker Compose（推薦）
@@ -310,13 +378,20 @@ services:
       - FIREBASE_URL=你的_FIREBASE_URL
       - GEMINI_API_KEY=你的_GEMINI_API_KEY
       - GEMINI_MODEL=gemini-2.5-flash
+      - GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
+      - GCS_BUCKET_NAME=你的_GCS_BUCKET_NAME
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/你的認證檔案.json
       - PORT=8080
       - API_ENV=production
 ```
 
 然後執行：
 ```bash
-docker-compose up -d
+# 首次部署或更新程式碼後
+docker-compose up -d --build
+
+# 僅重啟服務（未更改程式碼時）
+docker-compose restart
 ```
 
 ## 📖 進階文件

@@ -7,3 +7,5 @@ google.generativeai
 google-genai
 google-cloud-storage
 Pillow
+groq
+openai

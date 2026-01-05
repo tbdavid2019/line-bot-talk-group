@@ -9,6 +9,14 @@ Line @377mwhqu
 
 ## 🆕 版本更新
 
+### v3.3 (2026-01-05)
+- ✅ **Flex Message 視覺升級**：所有 Bot 回應現在使用美觀的卡片樣式
+- ✅ **語音轉文字 (ASR) 支援**：支援接收語音訊息並自動轉錄
+  - 支援 Groq Whisper、OpenAI Whisper、Gemini 三種 ASR 服務
+  - 具備智慧 Fallback 機制，確保服務可用性
+  - 語音轉錄後可正常觸發所有功能（AI 對話、畫圖等）
+- ⚠️ **重要**：需要更新 requirements.txt 並重新建置 Docker 容器
+
 ### v3.2 (2025-11-23)
 - ✅ 修正圖片生成模型參數化問題
   - 移除硬編碼的模型名稱
@@ -49,6 +57,8 @@ Line @377mwhqu
 - 透過命令產生訊息的摘要
 - **AI 問答模式**：@ 機器人進行一次性問答
 - **群組智慧回應**：在群組中只有被 @ 提及或使用特殊指令時才會回應
+- **Flex Message 回應**：所有回應使用美觀的卡片樣式呈現
+- **語音轉文字 (ASR)**：支援接收語音訊息並自動轉錄為文字
 
 ### 群組回應規則
 
@@ -108,6 +118,19 @@ Line @377mwhqu
 - ✅ 支援中英文指令符號（`!` 和 `！`）
 - ✅ 更清晰的使用說明
 
+### 5. Flex Message 視覺升級
+Bot 的所有文字回應現在都會自動包裝在美觀的 Flex Message 卡片中：
+- ✅ 標題與作者資訊清楚呈現
+- ✅ 裝飾性的頁首與頁尾
+- ✅ 更好的可讀性與視覺效果
+
+### 6. 語音轉文字 (ASR) 支援
+Bot 現在支援接收語音訊息，並自動轉換為文字進行處理：
+- ✅ 支援 **Groq Whisper**、**OpenAI Whisper**、**Gemini** 三種 ASR 服務
+- ✅ 智慧 Fallback 機制：優先使用預設服務，失敗後自動切換
+- ✅ 語音轉錄後可觸發所有功能（AI 對話、畫圖指令等）
+- ✅ 在群組與私人對話中都可使用
+
 ## 指令列表
 
 | 指令 | 功能 | 適用範圍 |
@@ -116,6 +139,8 @@ Line @377mwhqu
 | `!摘要` / `！摘要` | 產生對話摘要 | 群組、私人 |
 | `!清空` / `！清空` | 清空對話記錄 | 群組、私人 |
 | `!help` / `!幫助` | 顯示使用說明 | 群組、私人 |
+| `!畫圖 [描述]` | 生成圖片 | 群組、私人 |
+| 語音訊息 | 語音轉文字處理 | 群組、私人 |
 | 直接訊息 | 一般 AI 對話 | 私人 |
 
 ## 流程圖
@@ -231,6 +256,18 @@ Bot: ------對話歷史紀錄已經清空------
 - `GCS_BUCKET_NAME`: Google Cloud Storage bucket 名稱（圖片生成必須）
 - `GOOGLE_APPLICATION_CREDENTIALS`: GCS 認證檔案路徑（圖片生成必須）
 
+#### ASR (語音轉文字) 相關環境變數（v3.3+）
+
+- `ASR_DEFAULT_PROVIDER`: 預設使用的 ASR 提供商（可選）
+  - 預設值: `groq`
+  - 其他選項: `openai`, `gemini`
+- `ASR_GROQ_API_KEY`: Groq API 金鑰（可選）
+- `ASR_OPENAI_API_KEY`: OpenAI API 金鑰（可選）
+- `ASR_GEMINI_API_KEY`: Gemini ASR 專用金鑰（可選）
+  - 如未設定，將使用 `GEMINI_API_KEY`
+
+**注意**：ASR 功能至少需要設定一個 API Key。系統會優先使用 `ASR_DEFAULT_PROVIDER` 指定的服務，若失敗則自動切換至其他已設定的服務。
+
 #### 其他環境變數
 
 - `GEMINI_LLM_API_KEY`: 文字對話專用的 Gemini API 金鑰（可選）
@@ -315,6 +352,10 @@ GEMINI_API_KEY=你的_GEMINI_API_KEY
 GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
 GCS_BUCKET_NAME=你的_GCS_BUCKET_NAME
 GOOGLE_APPLICATION_CREDENTIALS=/app/你的認證檔案.json
+# ASR (語音轉文字) 設定
+ASR_DEFAULT_PROVIDER=groq
+ASR_GROQ_API_KEY=你的_GROQ_API_KEY
+ASR_OPENAI_API_KEY=你的_OPENAI_API_KEY
 PORT=8080
 API_ENV=production
 EOF
@@ -381,6 +422,9 @@ services:
       - GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
       - GCS_BUCKET_NAME=你的_GCS_BUCKET_NAME
       - GOOGLE_APPLICATION_CREDENTIALS=/app/你的認證檔案.json
+      - ASR_DEFAULT_PROVIDER=groq
+      - ASR_GROQ_API_KEY=你的_GROQ_API_KEY
+      - ASR_OPENAI_API_KEY=你的_OPENAI_API_KEY
       - PORT=8080
       - API_ENV=production
 ```

@@ -29,3 +29,4 @@ serviceAccountKey.json
 .env
 .env2
 svc-gcs-uploader-key.json
+david.sh

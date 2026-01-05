@@ -18,6 +18,7 @@ from linebot.v3.webhook import WebhookParser
 from linebot.v3.messaging import (
     AsyncApiClient,
     AsyncMessagingApi,
+    AsyncMessagingApiBlob,
     Configuration,
     ReplyMessageRequest,
     PushMessageRequest,
@@ -29,6 +30,7 @@ from linebot.v3.exceptions import (
 from linebot.v3.webhooks import (
     MessageEvent,
     TextMessageContent,
+    AudioMessageContent
 )
 import google.generativeai as genai
 from google import genai as genai_v2
@@ -36,6 +38,8 @@ from google.genai import types
 from google.cloud import storage
 import uvicorn
 from firebase import firebase
+from flex_msg import create_flex_message
+from asr import ASRHandler
 
 logging.basicConfig(
     level=os.getenv('LOG', 'INFO'),
@@ -44,6 +48,9 @@ logging.basicConfig(
 logger = logging.getLogger(__file__)
 
 app = FastAPI()
+
+# Initialize ASR Handler
+asr_handler = ASRHandler()
 
 channel_secret = os.getenv('LINE_CHANNEL_SECRET', None)
 channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN', None)
@@ -341,21 +348,23 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
     return False, "❌ 經過多次重試仍無法生成圖片，請稍後再試。"
 
 
-def is_bot_mentioned(event, bot_id=None):
+def is_bot_mentioned(event, bot_id=None, text=None):
     """
     檢查是否 Bot 被提及
     
     Args:
         event: LINE webhook event
         bot_id: Bot 的 LINE ID（可選）
+        text: 訊息文字（可選，若為 None 則嘗試從 event.message 獲取）
     
     Returns:
         bool: True 如果 Bot 被提及，False 否則
     """
-    if not isinstance(event.message, TextMessageContent):
-        return False
+    if text is None:
+        if not isinstance(event.message, TextMessageContent):
+            return False
+        text = event.message.text
     
-    text = event.message.text
     mention = getattr(event.message, 'mention', None)
     
     # 方法1: 檢查 mention 物件中是否包含特定的用戶ID
@@ -416,18 +425,49 @@ async def handle_callback(request: Request):
     # 創建 async client 在 async 函數內
     async_api_client = AsyncApiClient(configuration)
     line_bot_api = AsyncMessagingApi(async_api_client)
+    line_bot_api_blob = AsyncMessagingApiBlob(async_api_client)
     
     try:
         for event in events:
             logging.info(event)
             if not isinstance(event, MessageEvent):
                 continue
-            if not isinstance(event.message, TextMessageContent):
-                continue
-            text = event.message.text
+            
             user_id = event.source.user_id
-
             msg_type = event.message.type
+            text = ""
+            
+            if isinstance(event.message, TextMessageContent):
+                text = event.message.text
+            elif isinstance(event.message, AudioMessageContent):
+                # Handle Audio
+                try:
+                    message_id = event.message.id
+                    # Get message content using AsyncMessagingApiBlob
+                    message_content_response = await line_bot_api_blob.get_message_content(message_id)
+                    
+                    # Save to temp file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.m4a') as tf:
+                        # The response is a stream, read the content
+                        tf.write(message_content_response)
+                        temp_file_path = tf.name
+                    
+                    logging.info(f"Transcribing audio: {temp_file_path}")
+                    text = asr_handler.transcribe(temp_file_path)
+                    logging.info(f"Transcribed text: {text}")
+                    
+                    # Clean up
+                    os.unlink(temp_file_path)
+                    
+                    if not text:
+                        continue
+                        
+                except Exception as e:
+                    logging.error(f"Error handling audio message: {e}")
+                    continue
+            else:
+                continue
+
             fdb = firebase.FirebaseApplication(firebase_url, None)
             
             # 設定 Firebase 路徑
@@ -443,7 +483,7 @@ async def handle_callback(request: Request):
             
             if event.source.type == 'group':
                 # 檢查是否真的提及了 Bot
-                bot_mentioned = is_bot_mentioned(event, bot_line_id)
+                bot_mentioned = is_bot_mentioned(event, bot_line_id, text=text)
                 
                 # 檢查是否包含特殊指令
                 has_special_command = any(cmd in text.lower() for cmd in special_commands)
@@ -481,7 +521,7 @@ async def handle_callback(request: Request):
                 logging.warning(f"Failed to get messages from Firebase: {e}")
                 messages = []
 
-            if msg_type == 'text':
+            if text:
                 # 所有訊息都記錄到 Firebase
                 messages.append({'role': 'user', 'parts': [text], 'timestamp': str(event.timestamp)})
                 
@@ -584,7 +624,7 @@ async def handle_callback(request: Request):
                                         original_content_url=result,
                                         preview_image_url=result
                                     )
-                                    success_text = TextMessage(text=f"🎨 圖片生成完成：{prompt}")
+                                    success_text = create_flex_message(f"🎨 圖片生成完成：{prompt}", title="圖片生成", header_text="AI 畫家")
                                     
                                     await line_bot_api.reply_message(
                                         ReplyMessageRequest(
@@ -668,7 +708,7 @@ async def handle_callback(request: Request):
                     await line_bot_api.reply_message(
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
-                            messages=[TextMessage(text=reply_msg)]
+                            messages=[create_flex_message(reply_msg)]
                         ))
     
     finally:

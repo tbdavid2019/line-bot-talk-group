@@ -256,6 +256,15 @@ Bot: ------對話歷史紀錄已經清空------
 - `GCS_BUCKET_NAME`: Google Cloud Storage bucket 名稱（圖片生成必須）
 - `GOOGLE_APPLICATION_CREDENTIALS`: GCS 認證檔案路徑（圖片生成必須）
 
+#### Google Drive 轉存相關環境變數（群組檔案轉存）
+
+- `GOOGLE_OAUTH_CLIENT_ID`: Google OAuth Client ID（Web）
+- `GOOGLE_OAUTH_CLIENT_SECRET`: Google OAuth Client Secret（Web）
+- `OAUTH_REDIRECT_BASE`: 服務對外 base URL，例如 `https://你的網域名稱`
+  - callback endpoint 會使用：`{OAUTH_REDIRECT_BASE}/auth/google/callback`
+- `TOKEN_ENCRYPTION_KEY`: 用於加密儲存 Google refresh token（Fernet key）
+- `OAUTH_STATE_SIGNING_KEY`: 用於簽署 OAuth state（防止竄改/重放）
+
 #### ASR (語音轉文字) 相關環境變數（v3.3+）
 
 - `ASR_DEFAULT_PROVIDER`: 預設使用的 ASR 提供商（可選）
@@ -449,5 +458,4 @@ docker-compose restart
 ## 🤝 貢獻
 
 歡迎提交 Issue 和 Pull Request！
-
 

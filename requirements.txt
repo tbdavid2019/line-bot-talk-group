@@ -9,3 +9,5 @@ google-cloud-storage
 Pillow
 groq
 openai
+requests
+cryptography

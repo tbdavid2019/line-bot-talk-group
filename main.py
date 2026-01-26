@@ -1,11 +1,11 @@
 import logging
 import os
 import sys
-import base64
 import mimetypes
 import uuid
 import tempfile
 import asyncio
+import time
 from datetime import datetime
 if os.getenv('API_ENV') != 'production':
     from dotenv import load_dotenv
@@ -14,6 +14,7 @@ if os.getenv('API_ENV') != 'production':
 
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from linebot.v3.webhook import WebhookParser
 from linebot.v3.messaging import (
     AsyncApiClient,
@@ -22,7 +23,6 @@ from linebot.v3.messaging import (
     Configuration,
     ReplyMessageRequest,
     PushMessageRequest,
-    TextMessage,
     ImageMessage)
 from linebot.v3.exceptions import (
     InvalidSignatureError
@@ -30,7 +30,8 @@ from linebot.v3.exceptions import (
 from linebot.v3.webhooks import (
     MessageEvent,
     TextMessageContent,
-    AudioMessageContent
+    AudioMessageContent,
+    FileMessageContent
 )
 import google.generativeai as genai
 from google import genai as genai_v2
@@ -40,6 +41,7 @@ import uvicorn
 from firebase import firebase
 from flex_msg import create_flex_message
 from asr import ASRHandler
+import drive_export
 
 logging.basicConfig(
     level=os.getenv('LOG', 'INFO'),
@@ -99,7 +101,7 @@ genai.configure(api_key=gemini_llm_key)
 # Initialize Google Cloud Storage client
 if gcs_credentials_path and gcs_bucket_name:
     try:
-        logging.info(f"Initializing Google Cloud Storage...")
+        logging.info("Initializing Google Cloud Storage...")
         logging.info(f"GCS bucket name: {gcs_bucket_name}")
         logging.info(f"GCS credentials path: {gcs_credentials_path}")
         
@@ -321,7 +323,7 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
             else:
                 if text_response:
                     logging.warning(f"Model returned text only, no image generated. Text: {text_response[:200]}")
-                    return False, f"❌ 模型只返回文字說明而未生成圖片。請嘗試更具體的描述，例如：'一位台灣婦女在傳統市場挑選新鮮蔬菜的真實照片'"
+                    return False, "❌ 模型只返回文字說明而未生成圖片。請嘗試更具體的描述，例如：'一位台灣婦女在傳統市場挑選新鮮蔬菜的真實照片'"
                 else:
                     return False, "❌ 圖片生成失敗，請稍後再試。"
                 
@@ -343,7 +345,7 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
                 elif "quota" in error_msg.lower():
                     return False, "❌ API 配額不足，請檢查您的 Google AI 使用額度。"
                 else:
-                    return False, f"❌ 生成圖片時發生錯誤，請稍後再試。"
+                    return False, "❌ 生成圖片時發生錯誤，請稍後再試。"
     
     return False, "❌ 經過多次重試仍無法生成圖片，請稍後再試。"
 
@@ -409,6 +411,138 @@ async def root():
     return {"message": "LINE Bot is running", "status": "ok"}
 
 
+@app.get("/auth/google/callback")
+async def google_oauth_callback(request: Request):
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+    error = request.query_params.get("error")
+
+    if error:
+        return PlainTextResponse(f"OAuth failed: {error}", status_code=400)
+    if not code or not state:
+        return PlainTextResponse("Missing code/state", status_code=400)
+
+    try:
+        payload = drive_export.verify_state(state)
+    except Exception as e:
+        logging.error(f"OAuth state verification failed: {e}")
+        return PlainTextResponse("Invalid state", status_code=400)
+
+    group_id = payload.get("group_id")
+    line_user_id = payload.get("line_user_id")
+    bind_code = payload.get("bind_code")
+    nonce = payload.get("nonce")
+
+    if not group_id or not line_user_id or not bind_code or not nonce:
+        return PlainTextResponse("Invalid state payload", status_code=400)
+
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    redirect_base = os.getenv("OAUTH_REDIRECT_BASE")
+    if not client_id or not client_secret or not redirect_base:
+        logging.error("Google OAuth env vars missing")
+        return PlainTextResponse("Server not configured for Google OAuth", status_code=500)
+
+    redirect_uri = redirect_base.rstrip("/") + "/auth/google/callback"
+
+    fdb = firebase.FirebaseApplication(firebase_url, None)
+
+    code_record = fdb.get('drive_bind_codes', bind_code)
+    if not isinstance(code_record, dict):
+        return PlainTextResponse("Bind code not found", status_code=400)
+
+    expires_at = code_record.get("expires_at")
+    if not isinstance(expires_at, int) or int(time.time()) > expires_at:
+        return PlainTextResponse("Bind code expired", status_code=400)
+
+    if code_record.get("used_at"):
+        return PlainTextResponse("Bind code already used", status_code=400)
+
+    if code_record.get("group_id") != group_id:
+        return PlainTextResponse("Bind code group mismatch", status_code=400)
+
+    if code_record.get("requested_by_line_user_id") != line_user_id:
+        return PlainTextResponse("Bind code user mismatch", status_code=400)
+
+    if code_record.get("oauth_nonce") != nonce:
+        return PlainTextResponse("Bind code nonce mismatch", status_code=400)
+
+    try:
+        tokens = drive_export.exchange_code_for_tokens(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            code=code,
+        )
+    except Exception as e:
+        logging.error(f"OAuth token exchange failed: {e}")
+        return PlainTextResponse("Token exchange failed", status_code=500)
+
+    if not tokens.refresh_token:
+        # Do not mark used. User needs to re-consent to obtain refresh token.
+        logging.error("No refresh_token returned by Google")
+        return PlainTextResponse(
+            "No refresh token returned. Please revoke app access in your Google account and relink.",
+            status_code=400,
+        )
+
+    try:
+        refresh_token_enc = drive_export.encrypt_refresh_token(tokens.refresh_token)
+    except Exception as e:
+        logging.error(f"Failed to encrypt refresh token: {e}")
+        return PlainTextResponse("Server encryption error", status_code=500)
+
+    try:
+        folder_name = f"LINE Bot Export - {group_id}"
+        folder_id, folder_name = drive_export.drive_ensure_folder(
+            access_token=tokens.access_token,
+            name=folder_name,
+            parent_id=None,
+        )
+    except Exception as e:
+        logging.error(f"Drive folder creation failed: {e}")
+        return PlainTextResponse("Drive folder creation failed", status_code=500)
+
+    drive_export_cfg = {
+        "enabled": True,
+        "owner_line_user_id": line_user_id,
+        "owner_claimed_at": int(time.time()),
+        "google": {
+            "refresh_token_enc": refresh_token_enc,
+            "token_created_at": int(time.time()),
+            "scopes": (tokens.scope or "").split(),
+        },
+        "drive": {
+            "folder_id": folder_id,
+            "folder_name": folder_name,
+        },
+    }
+
+    try:
+        fdb.put(f'groups/{group_id}/info', 'drive_export', drive_export_cfg)
+        code_record["used_at"] = int(time.time())
+        fdb.put('drive_bind_codes', bind_code, code_record)
+    except Exception as e:
+        logging.error(f"Failed to persist drive export config: {e}")
+        return PlainTextResponse("Failed to save configuration", status_code=500)
+
+    async_api_client = AsyncApiClient(configuration)
+    line_bot_api = AsyncMessagingApi(async_api_client)
+    try:
+        await line_bot_api.push_message(
+            PushMessageRequest(
+                to=line_user_id,
+                messages=[create_flex_message("✅ 已啟用 Google Drive 轉存（此群組）", title="Drive 轉存")],
+            )
+        )
+    except Exception as e:
+        logging.error(f"Failed to push confirmation message: {e}")
+    finally:
+        await async_api_client.close()
+
+    return PlainTextResponse("Drive export enabled. You can close this page.")
+
+
 @app.post("/webhooks/line")
 async def handle_callback(request: Request):
     signature = request.headers['X-Line-Signature']
@@ -434,7 +568,6 @@ async def handle_callback(request: Request):
                 continue
             
             user_id = event.source.user_id
-            msg_type = event.message.type
             text = ""
             
             if isinstance(event.message, TextMessageContent):
@@ -466,6 +599,122 @@ async def handle_callback(request: Request):
                     logging.error(f"Error handling audio message: {e}")
                     continue
             else:
+                if isinstance(event.message, FileMessageContent):
+                    if event.source.type != 'group':
+                        continue
+
+                    group_id = event.source.group_id
+                    message_id = event.message.id
+                    file_name = drive_export.safe_filename(
+                        getattr(event.message, 'file_name', '') or getattr(event.message, 'fileName', ''),
+                        fallback=f"line_file_{message_id}",
+                    )
+                    file_size = getattr(event.message, 'file_size', None)
+
+                    # Simple size guard (avoid extremely large uploads).
+                    if isinstance(file_size, int) and file_size > 50 * 1024 * 1024:
+                        logging.warning(f"File too large for Drive export: {file_size} bytes")
+                        continue
+
+                    fdb = firebase.FirebaseApplication(firebase_url, None)
+                    try:
+                        cfg = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                    except Exception as e:
+                        logging.error(f"Failed to read drive_export config: {e}")
+                        continue
+
+                    if not isinstance(cfg, dict) or not cfg.get('enabled'):
+                        continue
+
+                    uploads_path = f'groups/{group_id}/info/drive_export/uploads'
+                    try:
+                        existing = fdb.get(uploads_path, message_id)
+                    except Exception:
+                        existing = None
+
+                    if isinstance(existing, dict) and existing.get('status') in ('pending', 'success'):
+                        continue
+
+                    try:
+                        fdb.put(uploads_path, message_id, {
+                            'status': 'pending',
+                            'created_at': int(time.time()),
+                        })
+                    except Exception as e:
+                        logging.error(f"Failed to create upload record: {e}")
+                        continue
+
+                    try:
+                        message_content = await line_bot_api_blob.get_message_content(message_id)
+                    except Exception as e:
+                        logging.error(f"Failed to download LINE file content: {e}")
+                        try:
+                            fdb.put(uploads_path, message_id, {
+                                'status': 'failed',
+                                'error': 'line_download_failed',
+                                'created_at': int(time.time()),
+                            })
+                        except Exception:
+                            pass
+                        continue
+
+                    with tempfile.NamedTemporaryFile(delete=False) as tf:
+                        tf.write(message_content)
+                        temp_file_path = tf.name
+
+                    try:
+                        google_cfg = cfg.get('google', {}) if isinstance(cfg.get('google'), dict) else {}
+                        drive_cfg = cfg.get('drive', {}) if isinstance(cfg.get('drive'), dict) else {}
+                        refresh_token_enc = google_cfg.get('refresh_token_enc')
+                        folder_id = drive_cfg.get('folder_id')
+
+                        if not refresh_token_enc or not folder_id:
+                            raise RuntimeError('drive_export_not_configured')
+
+                        client_id = os.getenv('GOOGLE_OAUTH_CLIENT_ID')
+                        client_secret = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET')
+                        if not client_id or not client_secret:
+                            raise RuntimeError('google_oauth_env_missing')
+
+                        def do_upload() -> str:
+                            refresh_token = drive_export.decrypt_refresh_token(refresh_token_enc)
+                            access_token = drive_export.refresh_access_token(
+                                client_id=client_id,
+                                client_secret=client_secret,
+                                refresh_token=refresh_token,
+                            )
+                            return drive_export.drive_resumable_upload(
+                                access_token=access_token,
+                                file_path=temp_file_path,
+                                filename=file_name,
+                                folder_id=folder_id,
+                            )
+
+                        drive_file_id = await asyncio.to_thread(do_upload)
+
+                        fdb.put(uploads_path, message_id, {
+                            'status': 'success',
+                            'drive_file_id': drive_file_id,
+                            'created_at': int(time.time()),
+                        })
+                    except Exception as e:
+                        logging.error(f"Drive upload failed: {e}")
+                        try:
+                            fdb.put(uploads_path, message_id, {
+                                'status': 'failed',
+                                'error': str(e)[:200],
+                                'created_at': int(time.time()),
+                            })
+                        except Exception:
+                            pass
+                    finally:
+                        try:
+                            os.unlink(temp_file_path)
+                        except Exception:
+                            pass
+
+                    continue
+
                 continue
 
             fdb = firebase.FirebaseApplication(firebase_url, None)
@@ -479,7 +728,8 @@ async def handle_callback(request: Request):
             # 決定是否要回應
             should_reply = False
             is_ai_question = False  # 是否為 AI 問答模式
-            special_commands = ['!清空', '!clean',  '!摘要','!總結','!summary', '！清空', '！摘要', '!help', '!幫助', '！help', '！幫助', '!畫圖', '!生成圖片', '！畫圖', '！生成圖片', '!image', '!draw']
+            is_drive_command = False
+            special_commands = ['!清空', '!clean',  '!摘要','!總結','!summary', '！清空', '！摘要', '!help', '!幫助', '！help', '！幫助', '!畫圖', '!生成圖片', '！畫圖', '！生成圖片', '!image', '!draw', '!drive', '！drive']
             
             if event.source.type == 'group':
                 # 檢查是否真的提及了 Bot
@@ -529,7 +779,148 @@ async def handle_callback(request: Request):
                 
                 # 只有在需要回應時才處理
                 if should_reply:
-                    if text.lower() in ['!清空', '！清空', '!clean']:
+                    normalized = text.strip().replace('！', '!')
+                    lowered = normalized.lower()
+
+                    if lowered.startswith('!drive'):
+                        is_drive_command = True
+                        tokens = normalized.split()
+
+                        # Ensure drive commands do not pollute conversation history
+                        messages.pop()
+
+                        if event.source.type == 'group':
+                            group_id = event.source.group_id
+
+                            if len(tokens) < 2:
+                                reply_msg = "用法：!drive bind | !drive status | !drive off"
+                            else:
+                                subcmd = tokens[1].lower()
+                                if subcmd == 'bind':
+                                    try:
+                                        existing = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                                    except Exception:
+                                        existing = None
+
+                                    if isinstance(existing, dict) and existing.get('owner_line_user_id'):
+                                        reply_msg = "此群組已有人綁定 Drive。請用 !drive status 查看，或請 owner 執行 !drive off 後再重新綁定。"
+                                    else:
+                                        bind_code = drive_export.generate_bind_code()
+                                        expires_at = int(time.time()) + 10 * 60
+                                        record = {
+                                            'group_id': group_id,
+                                            'requested_by_line_user_id': user_id,
+                                            'expires_at': expires_at,
+                                        }
+                                        try:
+                                            fdb.put('drive_bind_codes', bind_code, record)
+                                            fdb.put(f'groups/{group_id}/info/drive_export', 'bind', {
+                                                'active_code': bind_code,
+                                                'expires_at': expires_at,
+                                                'requested_by_line_user_id': user_id,
+                                            })
+                                            reply_msg = (
+                                                "請私訊我以下指令完成綁定（10 分鐘內有效）：\n"
+                                                f"!drive link {bind_code}"
+                                            )
+                                        except Exception as e:
+                                            logging.error(f"Failed to create bind code: {e}")
+                                            reply_msg = "建立綁定碼失敗，請稍後再試。"
+
+                                elif subcmd == 'status':
+                                    try:
+                                        cfg = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                                    except Exception:
+                                        cfg = None
+
+                                    if not isinstance(cfg, dict) or not cfg.get('enabled'):
+                                        owner = cfg.get('owner_line_user_id') if isinstance(cfg, dict) else None
+                                        bind = cfg.get('bind') if isinstance(cfg, dict) else None
+                                        msg = "Drive 轉存：未啟用"
+                                        if owner:
+                                            msg += f"\nOwner: {owner}"
+                                        if isinstance(bind, dict) and bind.get('active_code'):
+                                            msg += f"\n綁定碼：{bind.get('active_code')}（到期：{bind.get('expires_at')}）"
+                                        reply_msg = msg
+                                    else:
+                                        drive_cfg = cfg.get('drive', {}) if isinstance(cfg.get('drive'), dict) else {}
+                                        reply_msg = (
+                                            "Drive 轉存：已啟用\n"
+                                            f"Owner: {cfg.get('owner_line_user_id')}\n"
+                                            f"Folder ID: {drive_cfg.get('folder_id')}"
+                                        )
+
+                                elif subcmd == 'off':
+                                    try:
+                                        cfg = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                                    except Exception:
+                                        cfg = None
+
+                                    if not isinstance(cfg, dict) or not cfg.get('owner_line_user_id'):
+                                        reply_msg = "此群組尚未啟用 Drive 轉存。"
+                                    elif cfg.get('owner_line_user_id') != user_id:
+                                        reply_msg = "只有 owner 可以關閉 Drive 轉存。"
+                                    else:
+                                        try:
+                                            fdb.delete(f'groups/{group_id}/info', 'drive_export')
+                                            reply_msg = "已關閉 Drive 轉存，群組已可重新綁定。"
+                                        except Exception as e:
+                                            logging.error(f"Failed to disable drive export: {e}")
+                                            reply_msg = "關閉失敗，請稍後再試。"
+
+                                else:
+                                    reply_msg = "用法：!drive bind | !drive status | !drive off"
+
+                        else:
+                            # Private chat
+                            if len(tokens) < 3:
+                                reply_msg = "用法：!drive link <BIND_CODE>"
+                            else:
+                                subcmd = tokens[1].lower()
+                                if subcmd != 'link':
+                                    reply_msg = "用法：!drive link <BIND_CODE>"
+                                else:
+                                    bind_code = tokens[2].strip()
+                                    code_record = fdb.get('drive_bind_codes', bind_code)
+                                    if not isinstance(code_record, dict):
+                                        reply_msg = "綁定碼不存在。"
+                                    else:
+                                        expires_at = code_record.get('expires_at')
+                                        if not isinstance(expires_at, int) or int(time.time()) > expires_at:
+                                            reply_msg = "綁定碼已過期，請回群組重新執行 !drive bind。"
+                                        elif code_record.get('used_at'):
+                                            reply_msg = "綁定碼已使用，請回群組重新執行 !drive bind。"
+                                        elif code_record.get('requested_by_line_user_id') != user_id:
+                                            reply_msg = "此綁定碼不是由你建立。請由建立者完成綁定或重新產生綁定碼。"
+                                        else:
+                                            client_id = os.getenv('GOOGLE_OAUTH_CLIENT_ID')
+                                            redirect_base = os.getenv('OAUTH_REDIRECT_BASE')
+                                            if not client_id or not redirect_base or not os.getenv('OAUTH_STATE_SIGNING_KEY'):
+                                                reply_msg = "伺服器尚未設定 Google OAuth（缺少環境變數）。"
+                                            else:
+                                                redirect_uri = redirect_base.rstrip('/') + '/auth/google/callback'
+                                                nonce = uuid.uuid4().hex
+                                                exp = int(time.time()) + 10 * 60
+                                                payload = {
+                                                    'group_id': code_record.get('group_id'),
+                                                    'line_user_id': user_id,
+                                                    'bind_code': bind_code,
+                                                    'nonce': nonce,
+                                                    'exp': exp,
+                                                }
+                                                state = drive_export.sign_state(payload)
+
+                                                code_record['oauth_nonce'] = nonce
+                                                fdb.put('drive_bind_codes', bind_code, code_record)
+
+                                                oauth_url = drive_export.build_google_oauth_url(
+                                                    client_id=client_id,
+                                                    redirect_uri=redirect_uri,
+                                                    state=state,
+                                                )
+                                                reply_msg = f"請點選以下連結授權 Google Drive：\n{oauth_url}"
+
+                    elif text.lower() in ['!清空', '！清空', '!clean']:
                         try:
                             fdb.delete(user_chat_path, 'messages')
                             reply_msg = '------對話歷史紀錄已經清空------'
@@ -573,6 +964,8 @@ async def handle_callback(request: Request):
 
 • !摘要 或 ！摘要：產生對話摘要
 • !清空 或 ！清空：清空對話記錄
+• !drive bind：啟用此群組 Google Drive 轉存（owner 制）
+  其他：!drive status / !drive off
 • !畫圖 [描述] 或 ！畫圖 [描述]：生成圖片
   例：!畫圖 可愛的貓咪在花園裡玩耍
   提示：使用具體、詳細的描述效果更好
@@ -599,7 +992,6 @@ async def handle_callback(request: Request):
                         else:
                             # 提取圖片描述
                             prompt = text
-                            original_prompt = prompt
                             for cmd in ['!畫圖', '！畫圖', '!生成圖片', '！生成圖片', '!image', '!draw']:
                                 if cmd in text.lower():
                                     prompt = text.lower().replace(cmd, '').strip()
@@ -691,7 +1083,8 @@ async def handle_callback(request: Request):
                 # AI 問答模式、幫助訊息和圖片生成指令不記錄到對話歷史
                 should_save_to_firebase = not is_ai_question and not (
                     text.lower() in ['!help', '!幫助', '！help', '！幫助'] or
-                    any(cmd in text.lower() for cmd in ['!畫圖', '！畫圖', '!生成圖片', '！生成圖片', '!image', '!draw'])
+                    any(cmd in text.lower() for cmd in ['!畫圖', '！畫圖', '!生成圖片', '！生成圖片', '!image', '!draw']) or
+                    is_drive_command
                 )
                 
                 if should_save_to_firebase:

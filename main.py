@@ -42,6 +42,8 @@ from firebase import firebase
 from flex_msg import create_flex_message
 from asr import ASRHandler
 import drive_export
+from services.firebase import FirebaseService
+from services.gemini import GeminiService
 
 logging.basicConfig(
     level=os.getenv('LOG', 'INFO'),
@@ -234,7 +236,7 @@ async def upload_image_to_gcs(image_data, filename, mime_type="image/png"):
         
         logging.info("Starting upload to GCS...")
         # 設定正確的 content_type 以確保圖片能正確顯示
-        blob.upload_from_string(image_data, content_type=mime_type)
+        await asyncio.to_thread(blob.upload_from_string, image_data, content_type=mime_type)
         logging.info(f"Upload completed successfully with content_type: {mime_type}")
         
         # 對於啟用了 uniform bucket-level access 的 bucket，
@@ -246,7 +248,7 @@ async def upload_image_to_gcs(image_data, filename, mime_type="image/png"):
         encoded_filename = quote(unique_filename, safe='/')
         public_url = f"https://storage.googleapis.com/{bucket.name}/{encoded_filename}"
         logging.info(f"Image uploaded successfully: {public_url}")
-        logging.info(f"Blob exists: {blob.exists()}")
+        logging.info(f"Blob exists: {await asyncio.to_thread(blob.exists)}")
         return public_url
         
     except Exception as e:
@@ -320,11 +322,14 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
             text_response = ""
             chunk_count = 0
             
-            for chunk in client.models.generate_content_stream(
-                model=model,
-                contents=contents,
-                config=generate_content_config,
-            ):
+            def generate_chunks():
+                return list(client.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config,
+                ))
+
+            for chunk in await asyncio.to_thread(generate_chunks):
                 chunk_count += 1
                 logging.info(f"Processing chunk {chunk_count}")
                 
@@ -518,8 +523,9 @@ async def google_oauth_callback(request: Request):
     redirect_uri = redirect_base.rstrip("/") + "/auth/google/callback"
 
     fdb = get_firebase_db()
+    firebase_service = FirebaseService(fdb, firebase_url, _firebase_auth_obj)
 
-    code_record = fdb.get('drive_bind_codes', bind_code)
+    code_record = await asyncio.to_thread(firebase_service.read, 'drive_bind_codes', bind_code)
     if not isinstance(code_record, dict):
         return PlainTextResponse("Bind code not found", status_code=400)
 
@@ -591,9 +597,14 @@ async def google_oauth_callback(request: Request):
     }
 
     try:
-        fdb.put(f'groups/{group_id}/info', 'drive_export', drive_export_cfg)
+        await asyncio.to_thread(
+            firebase_service.write,
+            f'groups/{group_id}/info',
+            'drive_export',
+            drive_export_cfg,
+        )
         code_record["used_at"] = int(time.time())
-        fdb.put('drive_bind_codes', bind_code, code_record)
+        await asyncio.to_thread(firebase_service.write, 'drive_bind_codes', bind_code, code_record)
     except Exception as e:
         logging.error(f"Failed to persist drive export config: {e}")
         return PlainTextResponse("Failed to save configuration", status_code=500)
@@ -638,6 +649,23 @@ async def handle_callback(request: Request):
             logging.info(event)
             if not isinstance(event, MessageEvent):
                 continue
+
+            # Claim before any external side effect. Firebase conditional writes
+            # make this safe when LINE retries reach another container.
+            fdb = get_firebase_db()
+            firebase_service = FirebaseService(fdb, firebase_url, _firebase_auth_obj)
+            event_message_id = getattr(event.message, 'id', None)
+            if event_message_id:
+                try:
+                    claimed = await asyncio.to_thread(
+                        firebase_service.acquire_message_lock, event_message_id
+                    )
+                except Exception as e:
+                    logging.error(f"Failed to acquire message lock {event_message_id}: {e}")
+                    continue
+                if not claimed:
+                    logging.info(f"Ignoring duplicate LINE event: {event_message_id}")
+                    continue
             
             user_id = event.source.user_id
             text = ""
@@ -658,7 +686,7 @@ async def handle_callback(request: Request):
                         temp_file_path = tf.name
                     
                     logging.info(f"Transcribing audio: {temp_file_path}")
-                    text = asr_handler.transcribe(temp_file_path)
+                    text = await asyncio.to_thread(asr_handler.transcribe, temp_file_path)
                     logging.info(f"Transcribed text: {text}")
                     
                     # Clean up
@@ -690,7 +718,9 @@ async def handle_callback(request: Request):
 
                     fdb = get_firebase_db()
                     try:
-                        cfg = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                        cfg = await asyncio.to_thread(
+                            firebase_service.read, f'groups/{group_id}/info', 'drive_export'
+                        )
                     except Exception as e:
                         logging.error(f"Failed to read drive_export config: {e}")
                         continue
@@ -700,7 +730,7 @@ async def handle_callback(request: Request):
 
                     uploads_path = f'groups/{group_id}/info/drive_export/uploads'
                     try:
-                        existing = fdb.get(uploads_path, message_id)
+                        existing = await asyncio.to_thread(firebase_service.read, uploads_path, message_id)
                     except Exception:
                         existing = None
 
@@ -708,7 +738,7 @@ async def handle_callback(request: Request):
                         continue
 
                     try:
-                        fdb.put(uploads_path, message_id, {
+                        await asyncio.to_thread(firebase_service.write, uploads_path, message_id, {
                             'status': 'pending',
                             'created_at': int(time.time()),
                         })
@@ -721,7 +751,7 @@ async def handle_callback(request: Request):
                     except Exception as e:
                         logging.error(f"Failed to download LINE file content: {e}")
                         try:
-                            fdb.put(uploads_path, message_id, {
+                            await asyncio.to_thread(firebase_service.write, uploads_path, message_id, {
                                 'status': 'failed',
                                 'error': 'line_download_failed',
                                 'created_at': int(time.time()),
@@ -764,7 +794,7 @@ async def handle_callback(request: Request):
 
                         drive_file_id = await asyncio.to_thread(do_upload)
 
-                        fdb.put(uploads_path, message_id, {
+                        await asyncio.to_thread(firebase_service.write, uploads_path, message_id, {
                             'status': 'success',
                             'drive_file_id': drive_file_id,
                             'created_at': int(time.time()),
@@ -772,7 +802,7 @@ async def handle_callback(request: Request):
                     except Exception as e:
                         logging.error(f"Drive upload failed: {e}")
                         try:
-                            fdb.put(uploads_path, message_id, {
+                            await asyncio.to_thread(firebase_service.write, uploads_path, message_id, {
                                 'status': 'failed',
                                 'error': str(e)[:200],
                                 'created_at': int(time.time()),
@@ -789,8 +819,6 @@ async def handle_callback(request: Request):
 
                 continue
 
-            fdb = get_firebase_db()
-            
             # 設定 Firebase 路徑
             if event.source.type == 'group':
                 user_chat_path = f'groups/{event.source.group_id}'
@@ -834,14 +862,14 @@ async def handle_callback(request: Request):
             
             # 獲取現有對話記錄
             try:
-                chatgpt = fdb.get(user_chat_path, 'messages')
-                if chatgpt is None:
-                    messages = []
-                else:
-                    messages = chatgpt if isinstance(chatgpt, list) else []
+                messages = await asyncio.to_thread(
+                    firebase_service.get_messages, user_chat_path
+                )
+                existing_message_count = len(messages)
             except Exception as e:
                 logging.warning(f"Failed to get messages from Firebase: {e}")
                 messages = []
+                existing_message_count = 0
 
             if text:
                 # 所有訊息都記錄到 Firebase
@@ -870,7 +898,11 @@ async def handle_callback(request: Request):
                                 subcmd = tokens[1].lower()
                                 if subcmd == 'bind':
                                     try:
-                                        existing = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                                        existing = await asyncio.to_thread(
+                                            firebase_service.read,
+                                            f'groups/{group_id}/info',
+                                            'drive_export',
+                                        )
                                     except Exception:
                                         existing = None
 
@@ -885,8 +917,10 @@ async def handle_callback(request: Request):
                                             'expires_at': expires_at,
                                         }
                                         try:
-                                            fdb.put('drive_bind_codes', bind_code, record)
-                                            fdb.put(f'groups/{group_id}/info/drive_export', 'bind', {
+                                            await asyncio.to_thread(
+                                                firebase_service.write, 'drive_bind_codes', bind_code, record
+                                            )
+                                            await asyncio.to_thread(firebase_service.write, f'groups/{group_id}/info/drive_export', 'bind', {
                                                 'active_code': bind_code,
                                                 'expires_at': expires_at,
                                                 'requested_by_line_user_id': user_id,
@@ -901,7 +935,11 @@ async def handle_callback(request: Request):
 
                                 elif subcmd == 'status':
                                     try:
-                                        cfg = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                                        cfg = await asyncio.to_thread(
+                                            firebase_service.read,
+                                            f'groups/{group_id}/info',
+                                            'drive_export',
+                                        )
                                     except Exception:
                                         cfg = None
 
@@ -924,7 +962,11 @@ async def handle_callback(request: Request):
 
                                 elif subcmd == 'off':
                                     try:
-                                        cfg = fdb.get(f'groups/{group_id}/info', 'drive_export')
+                                        cfg = await asyncio.to_thread(
+                                            firebase_service.read,
+                                            f'groups/{group_id}/info',
+                                            'drive_export',
+                                        )
                                     except Exception:
                                         cfg = None
 
@@ -934,7 +976,11 @@ async def handle_callback(request: Request):
                                         reply_msg = "只有 owner 可以關閉 Drive 轉存。"
                                     else:
                                         try:
-                                            fdb.delete(f'groups/{group_id}/info', 'drive_export')
+                                            await asyncio.to_thread(
+                                                firebase_service.delete,
+                                                f'groups/{group_id}/info',
+                                                'drive_export',
+                                            )
                                             reply_msg = "已關閉 Drive 轉存，群組已可重新綁定。"
                                         except Exception as e:
                                             logging.error(f"Failed to disable drive export: {e}")
@@ -953,7 +999,9 @@ async def handle_callback(request: Request):
                                     reply_msg = "用法：!drive link <BIND_CODE>"
                                 else:
                                     bind_code = tokens[2].strip()
-                                    code_record = fdb.get('drive_bind_codes', bind_code)
+                                    code_record = await asyncio.to_thread(
+                                        firebase_service.read, 'drive_bind_codes', bind_code
+                                    )
                                     if not isinstance(code_record, dict):
                                         reply_msg = "綁定碼不存在。"
                                     else:
@@ -983,7 +1031,12 @@ async def handle_callback(request: Request):
                                                 state = drive_export.sign_state(payload)
 
                                                 code_record['oauth_nonce'] = nonce
-                                                fdb.put('drive_bind_codes', bind_code, code_record)
+                                                await asyncio.to_thread(
+                                                    firebase_service.write,
+                                                    'drive_bind_codes',
+                                                    bind_code,
+                                                    code_record,
+                                                )
 
                                                 oauth_url = drive_export.build_google_oauth_url(
                                                     client_id=client_id,
@@ -994,7 +1047,7 @@ async def handle_callback(request: Request):
 
                     elif text.lower() in ['!清空', '！清空', '!clean']:
                         try:
-                            fdb.delete(user_chat_path, 'messages')
+                            await asyncio.to_thread(firebase_service.clear_messages, user_chat_path)
                             reply_msg = '------對話歷史紀錄已經清空------'
                             # 清空後重置 messages
                             messages = []
@@ -1005,7 +1058,9 @@ async def handle_callback(request: Request):
                     elif text.lower() in ['!摘要', '！摘要', '!總結', '！總結', '！summary']:
                         if len(messages) > 1:  # 確保有對話內容可以摘要
                             try:
-                                model = genai.GenerativeModel(gemini_llm_model)
+                                gemini_service = GeminiService(
+                                    gemini_llm_model, genai.GenerativeModel
+                                )
                                 # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
                                 gemini_messages = []
                                 for msg in messages:
@@ -1015,8 +1070,10 @@ async def handle_callback(request: Request):
                                     }
                                     gemini_messages.append(gemini_msg)
                                 
-                                response = model.generate_content(
-                                    f'Summary the following message in Traditional Chinese by less 5 list points. \n{gemini_messages}')
+                                response = await asyncio.to_thread(
+                                    gemini_service.generate_content,
+                                    f'Summary the following message in Traditional Chinese by less 5 list points. \n{gemini_messages}',
+                                )
                                 reply_msg = response.text
                                 # 記錄摘要回應
                                 messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
@@ -1110,7 +1167,9 @@ async def handle_callback(request: Request):
                     elif is_ai_question:
                         # AI 問答模式：一次性回答，不記錄到對話歷史（群組中的 @ 提及）
                         try:
-                            model = genai.GenerativeModel(gemini_llm_model)
+                            gemini_service = GeminiService(
+                                gemini_llm_model, genai.GenerativeModel
+                            )
                             # 移除 @ 提及部分，只保留問題
                             clean_question = text
                             if hasattr(event.message, 'mention') and event.message.mention:
@@ -1121,7 +1180,10 @@ async def handle_callback(request: Request):
                                         # 簡單的文字清理，移除可能的 @ 符號
                                         clean_question = text.replace('@', '').strip()
                             
-                            response = model.generate_content(f"請用繁體中文回答以下問題：{clean_question}")
+                            response = await asyncio.to_thread(
+                                gemini_service.generate_content,
+                                f"請用繁體中文回答以下問題：{clean_question}",
+                            )
                             reply_msg = response.text
                             # AI 問答不記錄到對話歷史，所以移除剛加入的訊息
                             messages.pop()  # 移除剛才加入的用戶訊息
@@ -1133,7 +1195,9 @@ async def handle_callback(request: Request):
                     else:
                         # 一般對話（私人對話或群組中的其他情況）
                         try:
-                            model = genai.GenerativeModel(gemini_llm_model)
+                            gemini_service = GeminiService(
+                                gemini_llm_model, genai.GenerativeModel
+                            )
                             # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
                             gemini_messages = []
                             for msg in messages:
@@ -1143,7 +1207,9 @@ async def handle_callback(request: Request):
                                 }
                                 gemini_messages.append(gemini_msg)
                             
-                            response = model.generate_content(gemini_messages)
+                            response = await asyncio.to_thread(
+                                gemini_service.generate_content, gemini_messages
+                            )
                             reply_msg = response.text
                             messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
                             logging.info(f"Generated AI response for general conversation: {reply_msg[:50]}...")
@@ -1161,7 +1227,13 @@ async def handle_callback(request: Request):
                 
                 if should_save_to_firebase:
                     try:
-                        fdb.put(user_chat_path, 'messages', messages)
+                        for message in messages[existing_message_count:]:
+                            await asyncio.to_thread(
+                                firebase_service.append_message,
+                                user_chat_path,
+                                message,
+                                event_message_id if message.get('role') == 'user' else None,
+                            )
                         logging.info(f"Saved message to Firebase: {user_chat_path}")
                     except Exception as e:
                         logging.error(f"Failed to save to Firebase: {e}")

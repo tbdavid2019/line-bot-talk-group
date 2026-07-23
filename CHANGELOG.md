@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-07-23
+
+### Added
+- Added `services/firebase.py` to centralize Firebase RTDB reads, writes, append-only conversation records, transcript clearing, and conditional event claims.
+- Added `services/gemini.py` to centralize Gemini text-generation access.
+- Added offline `unittest` coverage for Firebase append-only persistence, legacy transcript compatibility, conditional deduplication conflicts, and Gemini service delegation.
+
+### Changed
+- LINE webhook processing now atomically claims each `message.id` in Firebase before any side effect, preventing duplicate replies and duplicate image/file work when LINE retries reach another container.
+- Conversation updates now append records below `message_events` instead of overwriting the full `messages` list, while retaining reads of legacy history.
+- Moved synchronous Firebase RTDB, Gemini text generation, ASR transcription, GCS uploads, and image-stream collection off FastAPI's event loop with `asyncio.to_thread`.
+
 ## [1.1.0] - 2026-07-23
 
 ### Added

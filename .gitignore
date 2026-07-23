@@ -30,7 +30,8 @@ svc-gcs-uploader-key.json
 key/
 *.json
 .venv/
-.env
-.env2
+.env*
+!.env.example
 david.sh
+
 

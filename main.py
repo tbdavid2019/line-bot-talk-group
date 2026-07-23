@@ -72,6 +72,78 @@ parser = WebhookParser(channel_secret)
 
 firebase_url = os.getenv('FIREBASE_URL')
 
+class FirebaseServiceAccountAuth:
+    """Authentication handler for python-firebase using Google Cloud Service Account JSON."""
+    def __init__(self, key_path):
+        self.key_path = key_path
+        self._credentials = None
+        self._init_credentials()
+
+    def _init_credentials(self):
+        from google.oauth2 import service_account
+        self._credentials = service_account.Credentials.from_service_account_file(
+            self.key_path,
+            scopes=[
+                'https://www.googleapis.com/auth/userinfo.email',
+                'https://www.googleapis.com/auth/firebase.database'
+            ]
+        )
+
+    def get_access_token(self):
+        import google.auth.transport.requests
+        if not self._credentials.valid:
+            request = google.auth.transport.requests.Request()
+            self._credentials.refresh(request)
+        return self._credentials.token
+
+_firebase_auth_obj = None
+
+def get_firebase_db():
+    global _firebase_auth_obj
+    if not firebase_url:
+        logging.error("FIREBASE_URL is not set")
+        return firebase.FirebaseApplication(None, None)
+
+    if _firebase_auth_obj is None:
+        # 1. 優先檢查 FIREBASE_CREDENTIALS / FIREBASE_KEY_PATH
+        cred_path = os.getenv('FIREBASE_CREDENTIALS') or os.getenv('FIREBASE_KEY_PATH')
+        
+        # 2. 檢查 key/ 資料夾
+        if not cred_path or not os.path.exists(cred_path):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            key_dir = os.path.join(base_dir, 'key')
+            if os.path.exists(key_dir):
+                json_files = [
+                    os.path.join(key_dir, f) for f in os.listdir(key_dir)
+                    if f.endswith('.json')
+                ]
+                if json_files:
+                    cred_path = json_files[0]
+
+        # 3. 檢查 GOOGLE_APPLICATION_CREDENTIALS
+        if not cred_path or not os.path.exists(cred_path):
+            gcs_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            if gcs_path and os.path.exists(gcs_path):
+                cred_path = gcs_path
+
+        # 4. 檢查 FIREBASE_SECRET (舊版 Realtime Database 密鑰)
+        firebase_secret = os.getenv('FIREBASE_SECRET')
+
+        if cred_path and os.path.exists(cred_path):
+            try:
+                _firebase_auth_obj = FirebaseServiceAccountAuth(cred_path)
+                logging.info(f"Firebase auth initialized with service account key: {cred_path}")
+            except Exception as e:
+                logging.error(f"Failed to initialize Firebase service account auth from {cred_path}: {e}")
+        elif firebase_secret:
+            _firebase_auth_obj = firebase_secret
+            logging.info("Firebase auth initialized with FIREBASE_SECRET")
+        else:
+            logging.warning("No Firebase authentication found. Requests may fail if database requires auth.")
+
+    return firebase.FirebaseApplication(firebase_url, _firebase_auth_obj)
+
+
 # Gemini LLM 設定（文字對話、摘要等）
 gemini_llm_key = os.getenv('GEMINI_LLM_API_KEY')
 gemini_llm_model = os.getenv('GEMINI_LLM_MODEL', 'gemini-flash-latest')
@@ -445,7 +517,7 @@ async def google_oauth_callback(request: Request):
 
     redirect_uri = redirect_base.rstrip("/") + "/auth/google/callback"
 
-    fdb = firebase.FirebaseApplication(firebase_url, None)
+    fdb = get_firebase_db()
 
     code_record = fdb.get('drive_bind_codes', bind_code)
     if not isinstance(code_record, dict):
@@ -616,7 +688,7 @@ async def handle_callback(request: Request):
                         logging.warning(f"File too large for Drive export: {file_size} bytes")
                         continue
 
-                    fdb = firebase.FirebaseApplication(firebase_url, None)
+                    fdb = get_firebase_db()
                     try:
                         cfg = fdb.get(f'groups/{group_id}/info', 'drive_export')
                     except Exception as e:
@@ -717,7 +789,7 @@ async def handle_callback(request: Request):
 
                 continue
 
-            fdb = firebase.FirebaseApplication(firebase_url, None)
+            fdb = get_firebase_db()
             
             # 設定 Firebase 路徑
             if event.source.type == 'group':

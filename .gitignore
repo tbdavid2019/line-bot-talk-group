@@ -25,8 +25,12 @@ firebase.json
 .pytest_cache
 venv
 serviceAccountKey.json
+service-account-key.json
+svc-gcs-uploader-key.json
+key/
+*.json
 .venv/
 .env
 .env2
-svc-gcs-uploader-key.json
 david.sh
+

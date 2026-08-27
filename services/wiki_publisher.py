@@ -145,22 +145,28 @@ class WikiPublisherService:
     def should_auto_publish(self, prompt: str, content: str) -> bool:
         """
         判斷 LLM 產出的回答是否應自動轉存並發布為 David888 Wiki 長篇專頁：
-        1. 內容超過 600 字元
-        2. 或包含 2 個以上的結構化標題 (##) 且長度超過 300 字
-        3. 或提問包含深度分析、研究、規劃、報告、指南等關鍵字且回答超過 350 字
+        1. 使用者提問中明確提及 wiki / david888 / 維基
+        2. 內容超過 600 字元
+        3. 或包含 2 個以上的結構化標題 (##) 且長度超過 250 字
+        4. 或提問包含深度分析、研究、規劃、報告、指南、教學等關鍵字且回答超過 300 字
         """
         if not content:
             return False
+
+        prompt_lower = prompt.lower()
+        # 若使用者明確要求透過 wiki 或發布 wiki
+        if any(w in prompt_lower for w in ['wiki', 'david888', '維基', '共筆']):
+            return True
             
         if len(content) > 600:
             return True
 
         heading_count = len(re.findall(r'^##\s+', content, re.MULTILINE))
-        if heading_count >= 2 and len(content) > 300:
+        if heading_count >= 2 and len(content) > 250:
             return True
 
-        long_intent_keywords = ['分析', '報告', '研究', '規劃', '架構', '教學', '整理', '指南', '專題', '比較', '深度', '完整', '說明書', '策略', '方案']
-        if any(k in prompt for k in long_intent_keywords) and len(content) > 350:
+        long_intent_keywords = ['分析', '報告', '研究', '規劃', '架構', '教學', '整理', '指南', '專題', '比較', '深度', '完整', '說明書', '策略', '方案', '手冊', '對話練習']
+        if any(k in prompt for k in long_intent_keywords) and len(content) > 300:
             return True
 
         return False
@@ -168,21 +174,31 @@ class WikiPublisherService:
     def prepare_wiki_markdown(self, prompt: str, content: str) -> str:
         """
         將 LLM 產出的長篇內容格式化為符合 Wiki 標準的 Markdown：
+        - 清理任何模型誤吐的偽調用標籤 (如 [CALL:...])
         - 自動確保具備 H1 主標題
         - 自動於適當位置插入 [TOC]
         """
-        lines = content.strip().split('\n')
+        # 防呆過濾：若模型曾誤吐 [CALL: 或 JSON 代碼塊包裹，先行清理
+        cleaned_content = re.sub(r'\[CALL:[^\]]+\]', '', content).strip()
+        if not cleaned_content:
+            cleaned_content = content.strip()
+
+        lines = cleaned_content.split('\n')
         has_h1 = False
         for line in lines[:5]:
             if line.strip().startswith('# ') and not line.strip().startswith('## '):
                 has_h1 = True
                 break
 
-        result = content.strip()
+        result = cleaned_content
         if not has_h1:
-            clean_title = prompt.strip().replace('@', '').replace('幫我', '').replace('請', '').replace('分析', '').strip()[:40]
+            clean_title = prompt.strip()
+            # 移除常見指令前綴詞
+            for prefix in ['@bot', '@機器人', '你透過', '請透過', '透過', 'david888', 'wiki', '寫一個', '幫我寫', '幫我', '請幫我', '請', '分析']:
+                clean_title = re.sub(re.escape(prefix), '', clean_title, flags=re.IGNORECASE).strip()
+            clean_title = clean_title.split('。')[0].split('\n')[0].strip()[:40]
             if not clean_title:
-                clean_title = f"AI 深度分析報告 ({datetime.now().strftime('%Y-%m-%d')})"
+                clean_title = f"AI 深度分析筆記 ({datetime.now().strftime('%Y-%m-%d')})"
             result = f"# 📑 {clean_title}\n\n{result}"
 
         # 若有 2 個以上次級標題且無 [TOC]，自動插入 [TOC]

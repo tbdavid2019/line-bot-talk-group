@@ -99,5 +99,32 @@ class TestWikiPublisherService(unittest.TestCase):
         self.assertIn("https://wiki.david888.com/share/ai999", formatted_line_reply)
         self.assertIn("📑 AI 深度長篇分析已發布至 David888 Wiki！", formatted_line_reply)
 
+    @patch('requests.post')
+    def test_dialogue_wiki_request_from_screenshot(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "err": 0,
+            "data": {
+                "url": "https://wiki.david888.com/business-english-dialogue",
+                "shareUrl": "https://wiki.david888.com/share/eng123"
+            }
+        }
+        mock_post.return_value = mock_resp
+
+        service = WikiPublisherService()
+        prompt = "你透過 david888 wiki 寫一個 英語對話給我。我要練習口語 商務場景。講甲方的要求太超過了 之類的抱怨。下方要有繁體中文"
+        llm_response = "### Scene 1: Client demands\nAlex: We need to talk about client requests.\nMia: Several new requests?\nAlex: Yes, they want a totally different direction."
+
+        # Verify prompt triggers wiki publishing
+        self.assertTrue(service.should_auto_publish(prompt, llm_response))
+
+        # Format & publish
+        reply = service.format_and_publish_if_long(prompt, llm_response)
+        
+        # Verify no raw [CALL: syntax and real shareUrl is returned
+        self.assertNotIn("[CALL:", reply)
+        self.assertIn("https://wiki.david888.com/share/eng123", reply)
+
 if __name__ == '__main__':
     unittest.main()

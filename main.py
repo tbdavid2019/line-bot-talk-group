@@ -23,7 +23,8 @@ from linebot.v3.messaging import (
     Configuration,
     ReplyMessageRequest,
     PushMessageRequest,
-    ImageMessage)
+    ImageMessage,
+    TextMessage)
 from linebot.v3.exceptions import (
     InvalidSignatureError
 )
@@ -584,7 +585,7 @@ async def google_oauth_callback(request: Request):
         await line_bot_api.push_message(
             PushMessageRequest(
                 to=line_user_id,
-                messages=[create_flex_message("✅ 已啟用 Google Drive 轉存（此群組）", title="Drive 轉存")],
+                messages=[TextMessage(text="✅ 已啟用 Google Drive 轉存（此群組）")],
             )
         )
     except Exception as e:
@@ -1201,7 +1202,7 @@ async def handle_callback(request: Request):
                                         original_content_url=result,
                                         preview_image_url=result
                                     )
-                                    success_text = create_flex_message(f"🎨 圖片生成完成：{prompt}", title="圖片生成", header_text="AI 畫家")
+                                    success_text = TextMessage(text=f"🎨 圖片生成完成：{prompt}")
                                     
                                     await line_bot_api.reply_message(
                                         ReplyMessageRequest(
@@ -1304,7 +1305,7 @@ async def handle_callback(request: Request):
                     await line_bot_api.reply_message(
                         ReplyMessageRequest(
                             reply_token=event.reply_token,
-                            messages=[create_flex_message(reply_msg)]
+                            messages=[TextMessage(text=reply_msg)]
                         ))
     
     finally:

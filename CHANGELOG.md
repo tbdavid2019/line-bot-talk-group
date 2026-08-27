@@ -34,6 +34,11 @@ All notable changes to this project will be documented in this file.
   - Established permanent protocol requiring automated synchronization of `CHANGELOG.md`, `README.md`, and unit tests on every change.
 
 ### Fixed
+- **Direct TextMessage Format & Clickable/Copyable LINE Output**:
+  - Replaced non-selectable Flex Messages with native `TextMessage` for all AI responses, general conversations, summaries, and system messages, ensuring users can directly select/copy text and click URLs on both Mobile and Desktop LINE clients.
+- **David888 Wiki Auto-Publish Boundary & Content Preservation**:
+  - Fixed over-aggressive Wiki publishing where general questions (like "what can you do?") had their answers hidden behind a bare Wiki URL.
+  - Restricted auto-publishing to explicit user intent (`!wiki`, `wiki`, `david888`, `維基`), and ensured that whenever a Wiki note is published, the full answer is ALWAYS delivered directly inside LINE alongside the clickable `shareUrl`.
 - **GeminiService Direct LLM Delegation Fix**:
   - Resolved an issue where `GeminiService` passed deprecated `genai.GenerativeModel` directly to Google GenAI SDK which hung the event loop and caused LINE webhook timeouts.
   - Ensured all conversation and AI query routes in `main.py` and `services/gemini.py` directly route to `LLMService` (`https://nen.com.tw/v1` `gpt-5.6-luna` -> `groq` fallback).

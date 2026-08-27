@@ -61,16 +61,13 @@ class TestWikiPublisherService(unittest.TestCase):
 
     def test_should_auto_publish(self):
         service = WikiPublisherService()
-        # Short simple answer -> False
+        # General question -> False (direct answer in LINE)
         self.assertFalse(service.should_auto_publish("你好", "你好！很高興為您服務。"))
+        self.assertFalse(service.should_auto_publish("what can you do?", "I can help with coding, writing..."))
 
-        # Long answer (> 600 chars) -> True
-        long_text = "這是一段長篇分析內容。" * 50
-        self.assertTrue(service.should_auto_publish("分析架構", long_text))
-
-        # Structured answer with 2+ headings -> True
-        structured_text = "## 1. 架構說明\n內容很詳細\n\n## 2. 核心機制\n包含細部說明與實作細節\n\n" * 10
-        self.assertTrue(service.should_auto_publish("請說明系統架構", structured_text))
+        # Explicit wiki request -> True
+        self.assertTrue(service.should_auto_publish("請透過 wiki 發布這篇分析", "詳細分析內容..."))
+        self.assertTrue(service.should_auto_publish("!wiki summary", "對話摘要內容..."))
 
     def test_prepare_wiki_markdown(self):
         service = WikiPublisherService()
@@ -93,11 +90,11 @@ class TestWikiPublisherService(unittest.TestCase):
         mock_post.return_value = mock_resp
 
         service = WikiPublisherService()
-        long_content = ("## 1. 核心結論\nDeepSeek-V4 推論架構極大降低延遲。\n\n## 2. 邊緣節點實作\n" + "詳細實作步驟內容說明。" * 30)
-        formatted_line_reply = service.format_and_publish_if_long("請深入分析 AI Agent 趨勢", long_content)
+        long_content = "這是為您整理的英文商務對話教學內容。"
+        formatted_line_reply = service.format_and_publish_if_long("請透過 wiki 發布英文商務對話教學", long_content)
 
         self.assertIn("https://wiki.david888.com/share/ai999", formatted_line_reply)
-        self.assertIn("📑 內容已為您完整發布至 David888 Wiki！", formatted_line_reply)
+        self.assertIn("這是為您整理的英文商務對話教學內容。", formatted_line_reply)
 
     @patch('requests.post')
     def test_dialogue_wiki_request_from_screenshot(self, mock_post):

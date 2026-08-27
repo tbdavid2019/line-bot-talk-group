@@ -144,41 +144,25 @@ class WikiPublisherService:
 
     def should_auto_publish(self, prompt: str, content: str) -> bool:
         """
-        判斷 LLM 產出的回答是否應自動轉存並發布為 David888 Wiki 長篇專頁：
-        1. 使用者提問中明確提及 wiki / david888 / 維基
-        2. 內容超過 600 字元
-        3. 或包含 2 個以上的結構化標題 (##) 且長度超過 250 字
-        4. 或提問包含深度分析、研究、規劃、報告、指南、教學等關鍵字且回答超過 300 字
+        判斷是否應自動轉存並發布為 David888 Wiki 專頁：
+        僅在提問中明確提及 wiki / david888 / 維基 / 共筆 或特意要求發布時觸發。
         """
-        if not content:
+        if not content or not prompt:
             return False
 
         prompt_lower = prompt.lower()
-        # 若使用者明確要求透過 wiki 或發布 wiki
-        if any(w in prompt_lower for w in ['wiki', 'david888', '維基', '共筆']):
-            return True
-            
-        if len(content) > 600:
-            return True
-
-        heading_count = len(re.findall(r'^##\s+', content, re.MULTILINE))
-        if heading_count >= 2 and len(content) > 250:
-            return True
-
-        long_intent_keywords = ['分析', '報告', '研究', '規劃', '架構', '教學', '整理', '指南', '專題', '比較', '深度', '完整', '說明書', '策略', '方案', '手冊', '對話練習']
-        if any(k in prompt for k in long_intent_keywords) and len(content) > 300:
+        if any(w in prompt_lower for w in ['wiki', 'david888', '維基', '共筆', '!wiki', '！wiki']):
             return True
 
         return False
 
     def prepare_wiki_markdown(self, prompt: str, content: str) -> str:
         """
-        將 LLM 產出的長篇內容格式化為符合 Wiki 標準的 Markdown：
+        將內容格式化為符合 Wiki 標準的 Markdown：
         - 清理任何模型誤吐的偽調用標籤 (如 [CALL:...])
         - 自動確保具備 H1 主標題
         - 自動於適當位置插入 [TOC]
         """
-        # 防呆過濾：若模型曾誤吐 [CALL: 或 JSON 代碼塊包裹，先行清理
         cleaned_content = re.sub(r'\[CALL:[^\]]+\]', '', content).strip()
         if not cleaned_content:
             cleaned_content = content.strip()
@@ -193,15 +177,13 @@ class WikiPublisherService:
         result = cleaned_content
         if not has_h1:
             clean_title = prompt.strip()
-            # 移除常見指令前綴詞
             for prefix in ['@bot', '@機器人', '你透過', '請透過', '透過', 'david888', 'wiki', '寫一個', '幫我寫', '幫我', '請幫我', '請', '分析']:
                 clean_title = re.sub(re.escape(prefix), '', clean_title, flags=re.IGNORECASE).strip()
             clean_title = clean_title.split('。')[0].split('\n')[0].strip()[:40]
             if not clean_title:
-                clean_title = f"AI 深度分析筆記 ({datetime.now().strftime('%Y-%m-%d')})"
+                clean_title = f"AI 筆記 ({datetime.now().strftime('%Y-%m-%d')})"
             result = f"# 📑 {clean_title}\n\n{result}"
 
-        # 若有 2 個以上次級標題且無 [TOC]，自動插入 [TOC]
         heading_count = len(re.findall(r'^##\s+', result, re.MULTILINE))
         if heading_count >= 2 and '[TOC]' not in result and '[toc]' not in result:
             parts = result.split('\n', 1)
@@ -214,16 +196,14 @@ class WikiPublisherService:
 
     def format_and_publish_if_long(self, prompt: str, content: str) -> str:
         """
-        LLM 自主知識庫發布核心：
-        當產出長篇分析或結構化報告時，LLM 自動發布至 David888 Wiki，
-        並在 LINE 中回傳美觀的精華預覽與線上閱讀 shareUrl。
+        發布至 David888 Wiki 並保留完整的回答內容在 LINE 中，附上可點擊的 shareUrl。
         """
         if not self.should_auto_publish(prompt, content):
             return content
 
         try:
             wiki_md = self.prepare_wiki_markdown(prompt, content)
-            title_slug = self.slugify(prompt[:30], fallback_prefix="ai-analysis")
+            title_slug = self.slugify(prompt[:30], fallback_prefix="ai-note")
             wiki_res = self.publish_note(
                 text=wiki_md,
                 title=title_slug,
@@ -232,9 +212,9 @@ class WikiPublisherService:
             )
             if wiki_res and wiki_res.get("shareUrl"):
                 share_url = wiki_res["shareUrl"]
-                return f"📑 內容已為您完整發布至 David888 Wiki！\n\n🔗 線上完整閱讀：\n{share_url}"
+                return f"{content}\n\n---\n📑 本篇已同步發布至 David888 Wiki：\n{share_url}"
         except Exception as e:
-            logger.error(f"Failed to auto-publish long response to wiki: {e}")
+            logger.error(f"Failed to publish response to wiki: {e}")
 
         return content
 

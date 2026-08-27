@@ -1224,7 +1224,7 @@ async def handle_callback(request: Request):
                                     
                                     if wiki_res and wiki_res.get("shareUrl"):
                                         share_url = wiki_res["shareUrl"]
-                                        reply_msg = f"📑 群組對話精華摘要已發布至 David888 Wiki！\n\n🔗 線上公開閱讀：\n{share_url}\n\n" + summary_content[:300] + ("..." if len(summary_content) > 300 else "")
+                                        reply_msg = f"📑 群組對話精華摘要已發布至 David888 Wiki！\n\n🔗 線上公開閱讀：\n{share_url}"
                                     else:
                                         reply_msg = f"📑 對話摘要：\n\n{summary_content}"
                                 except Exception as e:

@@ -97,7 +97,7 @@ class TestWikiPublisherService(unittest.TestCase):
         formatted_line_reply = service.format_and_publish_if_long("請深入分析 AI Agent 趨勢", long_content)
 
         self.assertIn("https://wiki.david888.com/share/ai999", formatted_line_reply)
-        self.assertIn("📑 AI 深度長篇分析已發布至 David888 Wiki！", formatted_line_reply)
+        self.assertIn("📑 內容已為您完整發布至 David888 Wiki！", formatted_line_reply)
 
     @patch('requests.post')
     def test_dialogue_wiki_request_from_screenshot(self, mock_post):

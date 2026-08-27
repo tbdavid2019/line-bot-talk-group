@@ -232,20 +232,7 @@ class WikiPublisherService:
             )
             if wiki_res and wiki_res.get("shareUrl"):
                 share_url = wiki_res["shareUrl"]
-                # 擷取 200~300 字的乾淨精華預覽
-                preview_lines = [l for l in content.strip().split('\n') if not l.strip().startswith('#') and l.strip()][:6]
-                preview = "\n".join(preview_lines)[:250]
-                if not preview:
-                    preview = content[:200]
-
-                return f"""📑 AI 深度長篇分析已發布至 David888 Wiki！
-
-🔗 線上完整閱讀（含目錄導覽與完整排版）：
-{share_url}
-
----
-💡 精華重點摘要：
-{preview}..."""
+                return f"📑 內容已為您完整發布至 David888 Wiki！\n\n🔗 線上完整閱讀：\n{share_url}"
         except Exception as e:
             logger.error(f"Failed to auto-publish long response to wiki: {e}")
 

@@ -23,6 +23,11 @@ All notable changes to this project will be documented in this file.
   - Established permanent protocol requiring automated synchronization of `CHANGELOG.md`, `README.md`, and unit tests on every change.
 
 ### Fixed
+- **Firebase Auth Decoupling & 401 Lock Resolution**:
+  - Removed erroneous fallback from Firebase authentication to `GOOGLE_APPLICATION_CREDENTIALS` (which is exclusively for GCS storage under a different project), resolving 401 Unauthorized errors during event deduplication and message locking.
+  - Aligned production `FIREBASE_URL` with active real-time database instance (`https://aicreate360-official-website-default-rtdb.asia-southeast1.firebasedatabase.app/`).
+- **Gemini LLM API Key Fallback & Key Rotation**:
+  - Rotated Gemini API key to active working credential (`ASR_GEMINI_API_KEY`), and added automatic fallback mechanism in `main.py` to prevent service interruption when primary LLM key expires.
 - **Group `@` Mention False Trigger Resolution**:
   - Fixed issue where the bot falsely chimed in when users `@` mentioned other members (e.g. `@Alice`, `@Bob`) or `@All` in group chats when keywords like `bot` or `機器人` appeared in text.
   - Added native LINE `is_self: bool` check on all `mentionees` to verify if the bot itself was targeted.

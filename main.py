@@ -124,13 +124,7 @@ def get_firebase_db():
                 if json_files:
                     cred_path = json_files[0]
 
-        # 3. 檢查 GOOGLE_APPLICATION_CREDENTIALS
-        if not cred_path or not os.path.exists(cred_path):
-            gcs_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-            if gcs_path and os.path.exists(gcs_path):
-                cred_path = gcs_path
-
-        # 4. 檢查 FIREBASE_SECRET (舊版 Realtime Database 密鑰)
+        # 3. 檢查 FIREBASE_SECRET (舊版 Realtime Database 密鑰)
         firebase_secret = os.getenv('FIREBASE_SECRET')
 
         if cred_path and os.path.exists(cred_path):
@@ -143,7 +137,8 @@ def get_firebase_db():
             _firebase_auth_obj = firebase_secret
             logging.info("Firebase auth initialized with FIREBASE_SECRET")
         else:
-            logging.warning("No Firebase authentication found. Requests may fail if database requires auth.")
+            _firebase_auth_obj = None
+            logging.info("Firebase initialized with direct database access")
 
     return firebase.FirebaseApplication(firebase_url, _firebase_auth_obj)
 
@@ -156,11 +151,11 @@ gemini_llm_model = os.getenv('GEMINI_LLM_MODEL', 'gemini-flash-latest')
 gemini_image_key = os.getenv('GEMINI_IMAGE_API_KEY')
 gemini_image_model = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-3-pro-image-preview')
 
-# 為了向後相容，如果沒有設定分離的 key，就使用舊的設定
+# 為了向後相容，如果沒有設定分離的 key，就使用舊的設定或 ASR 金鑰
 if not gemini_llm_key:
-    gemini_llm_key = os.getenv('GEMINI_API_KEY')
+    gemini_llm_key = os.getenv('GEMINI_API_KEY') or os.getenv('ASR_GEMINI_API_KEY')
 if not gemini_image_key:
-    gemini_image_key = os.getenv('GEMINI_API_KEY')
+    gemini_image_key = os.getenv('GEMINI_API_KEY') or os.getenv('ASR_GEMINI_API_KEY')
 if not gemini_llm_model and os.getenv('GEMINI_MODEL'):
     gemini_llm_model = os.getenv('GEMINI_MODEL')
 

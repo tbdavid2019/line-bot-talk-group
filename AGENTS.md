@@ -32,7 +32,7 @@ When generating or downloading images, videos, audio, or files, integrate with t
 ---
 
 ## 🚢 3. Deployment & Watchtower Infrastructure
-- **Production Server**: `10.9.0.9` (`/home/david/linebot-gemini-summarize`)
+- **Production Server**: `10.9.0.9` (`/home/david/line-bot-talk-group`)
 - **Containers**:
   - `LINE-377mwhqu` (Port 8080)
   - `LINE-113huwec` (Port 8081)

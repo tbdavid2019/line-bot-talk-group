@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **GitHub Actions Multi-Arch Docker Hub CI/CD (`.github/workflows/docker-build-push.yml`)**:
-  - Configured automated GitHub Actions workflow utilizing QEMU and Docker Buildx to build and push dual-architecture Docker images (`linux/amd64`, `linux/arm64`) to Docker Hub (`tbdavid2019/linebot-gemini-summarize`, `tbdavid2019/line-bot-talk-group`) and GitHub Container Registry (GHCR).
+  - Configured automated GitHub Actions workflow utilizing QEMU and Docker Buildx to build and push dual-architecture Docker images (`linux/amd64`, `linux/arm64`) to Docker Hub (`tbdavid2019/line-bot-talk-group`) and GitHub Container Registry (GHCR).
   - Integrated GitHub Secrets (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`) with fallback repository naming.
   - Added triggers on push to `master`/`main`, release tags (`v*`), pull requests, and manual execution (`workflow_dispatch`).
   - Added `.dockerignore` to secure API keys, credentials, local virtual environments, and cache files from Docker contexts.

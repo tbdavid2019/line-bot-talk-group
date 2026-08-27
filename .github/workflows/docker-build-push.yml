@@ -67,7 +67,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ steps.repo-names.outputs.dockerhub_user }}/linebot-gemini-summarize
             ${{ steps.repo-names.outputs.dockerhub_user }}/line-bot-talk-group
             ghcr.io/${{ github.repository }}
           tags: |

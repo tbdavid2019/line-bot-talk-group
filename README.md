@@ -35,7 +35,7 @@ Line @377mwhqu
   - 新增 `extract_clean_question` 完整保留問題內部的 `@` 符號（如 `@decorator`）
 - ✅ **GitHub Actions 自動化雙架構映像檔建置 (ARM64 + x86_64 ➔ Docker Hub)**：
   - **雙架構原生支援**：使用 QEMU + Docker Buildx 同時建置 `linux/amd64` (x64) 與 `linux/arm64` (Apple Silicon / ARM 伺服器) Multi-Arch 映像檔。
-  - **自動化推送**：程式碼 Push 至 `master`/`main` 或發布 Tag 時，自動推播至 Docker Hub (`tbdavid2019/linebot-gemini-summarize`、`tbdavid2019/line-bot-talk-group`) 與 GHCR。
+  - **自動化推送**：程式碼 Push 至 `master`/`main` 或發布 Tag 時，自動推播至 Docker Hub (`tbdavid2019/line-bot-talk-group:latest`) 與 GHCR。
   - **Watchtower 無縫聯動**：伺服器端容器 `LINE-377mwhqu` 與 `LINE-113huwec` 自動偵測 Docker Hub 最新版並無感重啟升級。
 - ✅ **Docker Compose & Watchtower 自動更新架構**：
   - 提供完整 `docker-compose.yml` 支援 `LINE-377mwhqu` 與 `LINE-113huwec`
@@ -383,17 +383,15 @@ https://你的域名/webhooks/line
 ##### 2. 自動化觸發與多架構支援
 - **雙架構原生映像**：每次 push 到 `master`/`main` 或發布 Tag 時，自動由 QEMU + Buildx 編譯 **`linux/amd64` (x64)** 與 **`linux/arm64` (ARM64)** 雙架構映像檔。
 - **推播端點**：
-  - `docker.io/<username>/linebot-gemini-summarize:latest`
   - `docker.io/<username>/line-bot-talk-group:latest`
   - `ghcr.io/<owner>/line-bot-talk-group:latest`
 - **手動執行**：亦可在 GitHub 介面的 `Actions` 標籤頁點擊 `Run workflow` 手動觸發建置。
 
 #### 本地建立 Docker Image
 
-
 ```bash
 # 建立 Docker image
-docker build -t linebot-gemini-summarize .
+docker build -t line-bot-talk-group .
 ```
 
 #### 執行 Docker Container
@@ -407,7 +405,7 @@ docker run -p 8080:8080 \
   -e FIREBASE_URL=你的_FIREBASE_URL \
   -e GEMINI_API_KEY=你的_GEMINI_API_KEY \
   -e PORT=8080 \
-  linebot-gemini-summarize
+  line-bot-talk-group
 ```
 
 **方法二：使用 .env 檔案（推薦）**
@@ -428,32 +426,28 @@ ASR_OPENAI_API_KEY=你的_OPENAI_API_KEY
 PORT=8080
 API_ENV=production
 EOF
-```
+
 # 使用 .env 檔案執行容器
-docker run -d -p 8080:8080 --env-file .env --restart unless-stopped linebot-gemini-summarize 
+docker run -d -p 8080:8080 --env-file .env --restart unless-stopped line-bot-talk-group 
 
 # 1. 停止並刪除舊容器
 docker stop <container_name>
 docker rm <container_name>
 
 # 2. 重新建置映像檔
-docker build -t linebot-gemini .
-
-
+docker build -t line-bot-talk-group .
 
 docker run -d \
   --env-file .env \
   -p 8080:8080 \
   --name LINE-377mwhqu \
-  linebot-gemini
+  line-bot-talk-group
 
-
-  docker run -d \
+docker run -d \
   --env-file .env2 \
   -p 8081:8080 \
   --name LINE-113huwec \
-  linebot-gemini
-
+  line-bot-talk-group
 ```
 
 **⚠️ 重要提醒：更新程式碼後的部署步驟**
@@ -466,10 +460,10 @@ docker stop <container_name>
 docker rm <container_name>
 
 # 2. 重新建置 image
-docker build -t linebot-gemini-summarize .
+docker build -t line-bot-talk-group .
 
 # 3. 使用新的 image 啟動容器
-docker run -d -p 8080:8080 --env-file .env --restart unless-stopped linebot-gemini-summarize
+docker run -d -p 8080:8080 --env-file .env --restart unless-stopped line-bot-talk-group
 ```
 
 #### 使用 Docker Compose（推薦）

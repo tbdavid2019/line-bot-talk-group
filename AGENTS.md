@@ -66,3 +66,15 @@ When generating or downloading images, videos, audio, or files, integrate with t
   - **Storage**: Automatically uploaded and served via `888box` multi-tier CDN (`services/box_storage.py`).
   - **Implementation**: Handled in `services/image_generator.py` via `ImageGeneratorService`.
 
+---
+
+## 🌐 6. 2MD Fast Reader & SERP Live Web Search Engine
+- **Primary Endpoint**: `https://2md.aiurl.tw/`
+- **Fallback 1**: `https://2md.glsoft.ai/`
+- **Fallback 2**: `https://create360.ai/`
+- **Capabilities**:
+  - **Live SERP Web Search**: `GET /s/<query>` or `GET /search?q=<query>` (powered by DuckDuckGo + multi-engine failover).
+  - **URL to Markdown Web Reader**: `GET /<url>` (high-speed article & document extraction).
+- **Implementation**: Handled in `services/web_search.py` via `WebSearchService` and seamlessly integrated into `LLMService` for real-time live retrieval (stock quotes, breaking news, market status, URL parsing).
+
+

@@ -7,6 +7,8 @@ import logging
 import requests
 from typing import Any, List, Dict, Optional
 
+from services.web_search import WebSearchService
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +29,8 @@ class LLMService:
         fallback_base_url: Optional[str] = None,
         fallback_model: Optional[str] = None,
         fallback_api_key: Optional[str] = None,
-        timeout: int = 60
+        timeout: int = 60,
+        enable_web_search: bool = True
     ) -> None:
         # 1. Primary endpoint (Default: nen.com.tw / gpt-5.6-luna)
         self.primary_base_url = (
@@ -58,6 +61,8 @@ class LLMService:
         )
 
         self.timeout = timeout
+        self.enable_web_search = enable_web_search
+        self.web_search_service = WebSearchService()
 
     def _convert_to_openai_messages(self, contents: Any) -> List[Dict[str, str]]:
         """Converts string, list of strings, or Gemini-style messages into OpenAI chat format."""
@@ -94,8 +99,18 @@ class LLMService:
         """
         Executes text generation with automatic failover:
         Primary (nen.com.tw / gpt-5.6-luna) -> Fallback (Groq / openai/gpt-oss-20b) -> Google Gemini.
+        Enriches user queries with live web search / URL reader via 2MD API.
         """
         messages = self._convert_to_openai_messages(contents)
+
+        # Ground prompt with live web search / URL content if enabled
+        if self.enable_web_search and messages:
+            last_msg = messages[-1]
+            if last_msg.get("role") == "user":
+                try:
+                    last_msg["content"] = self.web_search_service.enrich_prompt_with_web(last_msg["content"])
+                except Exception as e:
+                    logger.warning(f"Web search enrichment failed: {e}")
 
         # 1. Try Primary LLM
         if self.primary_base_url and self.primary_api_key and self.primary_model:

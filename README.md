@@ -9,6 +9,12 @@ Line @377mwhqu
 
 ## 🆕 版本更新
 
+- ✅ **2MD Fast Reader & SERP Live Web Search 即時連網能力**：
+  - **即時網路搜尋 (SERP)**：自動檢測即時問題（股價、最新新聞、財報、走勢、天氣），透過 2MD 搜尋引擎獲取實時事實（`https://2md.aiurl.tw` ➔ `https://2md.glsoft.ai` ➔ `https://create360.ai`）。
+  - **網頁自動讀取與重點摘要**：直接傳送網址或使用 `!read <URL>` / `!網頁 <URL>`，自動透過 2MD Fast Reader 萃取乾淨 Markdown 內容並由 AI 生成結構化摘要。
+  - **專屬搜尋指令**：支援 `!搜尋 <關鍵字>` / `!search <關鍵字>`。
+- ✅ **原生 TextMessage 回應（支援任意選取複製與超連結點擊）**：
+  - 全面採用原生 `TextMessage`，不再受限於 Flex Message 無法複製選取與連結不可點擊的問題。
 - ✅ **全雙工智慧 LLM 推論升級 (Primary ➔ Fallback ➔ Gemini)**：
   - **主要 LLM**：`https://nen.com.tw/v1` (`gpt-5.6-luna`)
   - **備用 LLM**：`https://api.groq.com/openai/v1` (`openai/gpt-oss-20b`)

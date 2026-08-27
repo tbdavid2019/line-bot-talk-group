@@ -49,6 +49,12 @@ from services.llm import LLMService
 from services.image_generator import ImageGeneratorService
 from services.box_storage import BoxStorageService
 from services.wiki_publisher import WikiPublisherService
+from services.web_search import WebSearchService
+
+web_search_service = WebSearchService()
+image_generator_service = ImageGeneratorService()
+wiki_publisher_service = WikiPublisherService()
+llm_service = LLMService()
 
 logging.basicConfig(
     level=os.getenv('LOG', 'INFO'),
@@ -800,7 +806,16 @@ async def handle_callback(request: Request):
             is_ai_question = False  # 是否為 AI 問答模式
             is_drive_command = False
             is_wiki_command = False
-            special_commands = ['!清空', '!clean',  '!摘要','!總結','!summary', '！清空', '！摘要', '!help', '!幫助', '！help', '！幫助', '!畫圖', '!生成圖片', '！畫圖', '！生成圖片', '!image', '!draw', '!drive', '！drive', '!wiki', '！wiki']
+            is_search_command = False
+            is_read_command = False
+            special_commands = [
+                '!清空', '!clean', '!摘要', '!總結', '!summary', '！清空', '！摘要',
+                '!help', '!幫助', '！help', '！幫助',
+                '!畫圖', '!生成圖片', '！畫圖', '！生成圖片', '!image', '!draw',
+                '!drive', '！drive', '!wiki', '！wiki',
+                '!search', '!搜尋', '！搜尋', '!s ', '！s ',
+                '!read', '！read', '!網頁', '！網頁'
+            ]
             
             if event.source.type == 'group':
                 # 檢查是否真的提及了 Bot
@@ -1139,33 +1154,78 @@ async def handle_callback(request: Request):
                                 logging.error(f"Error publishing to wiki: {e}")
                                 reply_msg = f"❌ 發布失敗：{e}"
 
+                    elif lowered.startswith(('!search', '!搜尋', '!s ')):
+                        is_search_command = True
+                        clean_query = normalized
+                        for prefix in ['!search', '!搜尋', '!s']:
+                            if clean_query.lower().startswith(prefix):
+                                clean_query = clean_query[len(prefix):].strip()
+                                break
+
+                        if not clean_query:
+                            reply_msg = "請提供搜尋關鍵字，例如：!搜尋 台積電 最新股價"
+                        else:
+                            try:
+                                gemini_service = GeminiService(gemini_llm_model)
+                                response = await asyncio.to_thread(
+                                    gemini_service.generate_content,
+                                    f"請使用繁體中文，基於即時網路搜尋結果深入回答與分析以下問題：\n{clean_query}"
+                                )
+                                reply_msg = response.text
+                            except Exception as e:
+                                logging.error(f"Search command failed: {e}")
+                                reply_msg = f"抱歉，搜尋處理時發生錯誤：{e}"
+
+                        messages.pop()
+
+                    elif lowered.startswith(('!read', '!網頁')):
+                        is_read_command = True
+                        urls = web_search_service.extract_urls(text)
+                        if not urls:
+                            reply_msg = "請提供完整的網址，例如：!read https://example.com"
+                        else:
+                            try:
+                                target_url = urls[0]
+                                gemini_service = GeminiService(gemini_llm_model)
+                                response = await asyncio.to_thread(
+                                    gemini_service.generate_content,
+                                    f"請詳細閱讀並重點摘要以下網頁內容：\n{target_url}"
+                                )
+                                reply_msg = response.text
+                            except Exception as e:
+                                logging.error(f"Read URL command failed: {e}")
+                                reply_msg = f"抱歉，網頁讀取時發生錯誤：{e}"
+
+                        messages.pop()
+
                     elif text.lower() in ['!help', '!幫助', '！help', '！幫助']:
                         reply_msg = """🤖 群組摘要王 使用說明
 
 **群組功能：**
-• @ 機器人 + 問題：進入 AI 問答模式
-  例：@Bot 什麼是梯度下降？
+• @ 機器人 + 問題：進入 AI 即時問答（內建聯網搜尋與網頁閱讀）
+  例：@Bot 什麼是梯度下降？或 @Bot 台積電今天股價
 
+• !搜尋 [關鍵字] 或 !search [關鍵字]：即時聯網搜尋與 AI 分析
+  例：!搜尋 2026年最新 AI 技術突破
+• !網頁 [網址] 或 直接傳送網址：自動讀取並重點摘要網頁內容
 • !摘要 或 ！摘要：產生對話摘要
-• !wiki summary：將對話整理為結構化筆記並發布至 David888 Wiki (含公開分享連結)
+• !wiki summary：將對話整理為結構化筆記並發布至 David888 Wiki (附公開分享連結)
 • !wiki <標題> <內容>：直接發布 Markdown 筆記至 David888 Wiki
 • !清空 或 ！清空：清空對話記錄
 • !drive bind：啟用此群組 Google Drive 轉存（owner 制）
   其他：!drive status / !drive off
 • !畫圖 [描述] 或 ！畫圖 [描述]：生成圖片
   例：!畫圖 可愛的貓咪在花園裡玩耍
-  提示：使用具體、詳細的描述效果更好
 • !help 或 !幫助：顯示此說明
 
 **私人功能：**
-• 直接傳送訊息即可與 AI 對話
+• 直接傳送訊息或網址即可與 AI 對話（自動即時聯網）
 • 支援所有群組指令
 
-**注意事項：**
-• 群組中只有 @ 提及或特殊指令才會回應
-• AI 問答為一次性回答，不會記錄到對話歷史
-• 所有訊息都會被記錄以供摘要功能使用
-• 圖片與檔案會自動存入 888box CDN 高速儲存"""
+**特色功能：**
+• 🌐 2MD 即時連網：自動查詢即時股價、新聞、財報與實時事實
+• 📑 David888 Wiki：可將長篇報告一鍵轉為公開網頁分享
+• 🖼️ 888box CDN：生成的圖片與檔案均高速託管儲存"""
                         # 幫助訊息不記錄到對話歷史
                         
                     elif any(cmd in text.lower() for cmd in ['!畫圖', '！畫圖', '!生成圖片', '！生成圖片', '!image', '!draw']):
@@ -1282,7 +1342,9 @@ async def handle_callback(request: Request):
                     text.lower() in ['!help', '!幫助', '！help', '！幫助'] or
                     any(cmd in text.lower() for cmd in ['!畫圖', '！畫圖', '!生成圖片', '！生成圖片', '!image', '!draw']) or
                     is_drive_command or
-                    is_wiki_command
+                    is_wiki_command or
+                    is_search_command or
+                    is_read_command
                 )
                 
                 if should_save_to_firebase:

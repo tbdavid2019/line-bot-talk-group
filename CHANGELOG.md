@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## 2026-08-27
 
+### Added
+- **2MD Fast Reader & SERP Live Web Search Engine (`services/web_search.py`)**:
+  - Implemented `WebSearchService` integrating real-time web search (SERP) and URL to Markdown reader across multi-tier 2MD endpoints:
+    - Primary: `https://2md.aiurl.tw`
+    - Fallback 1: `https://2md.glsoft.ai`
+    - Fallback 2: `https://create360.ai`
+  - Integrated live search auto-enrichment into `LLMService` to ground AI responses on real-time facts, stock quotes, financial market quotes, weather, and breaking news.
+  - Automatically fetches and summarizes web pages when URLs are sent or when commands `!read <URL>` / `!搜尋 <query>` are executed.
+  - Added unit test suite `test/test_web_search.py`.
 - **Unified LLM Service (`services/llm.py`)**:
   - Implemented `LLMService` with automatic multi-tier failover:
     - Primary: `https://nen.com.tw/v1` (`gpt-5.6-luna`)

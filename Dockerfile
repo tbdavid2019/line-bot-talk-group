@@ -1,13 +1,26 @@
-FROM python:3.13
+FROM python:3.13-slim
 
-# 將專案複製到容器中
-COPY . /app
+# Prevent Python from writing .pyc files and buffer stdout/stderr
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
+
 WORKDIR /app
 
-# 安裝必要的套件
-RUN pip install --upgrade pip
+# Install system dependencies (git is required for python-firebase, curl for docker healthcheck)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies with caching optimization
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application source code
+COPY . .
 
 EXPOSE 8080
-CMD ["sh", "-c", "uvicorn main:app --host=0.0.0.0 --port=$PORT"]
+
+CMD ["sh", "-c", "uvicorn main:app --host=0.0.0.0 --port=${PORT:-8080}"]

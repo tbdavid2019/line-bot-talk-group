@@ -33,6 +33,10 @@ Line @377mwhqu
   - 支援 LINE 原生 `is_self` 判定，徹底解決群組中提及 `@其他成員` 或 `@All` 時 Bot 誤插話的嚴重問題
   - 手打提及支援正則前後邊界匹配，安全過濾 `@..` 及一般內文符號
   - 新增 `extract_clean_question` 完整保留問題內部的 `@` 符號（如 `@decorator`）
+- ✅ **GitHub Actions 自動化雙架構映像檔建置 (ARM64 + x86_64 ➔ Docker Hub)**：
+  - **雙架構原生支援**：使用 QEMU + Docker Buildx 同時建置 `linux/amd64` (x64) 與 `linux/arm64` (Apple Silicon / ARM 伺服器) Multi-Arch 映像檔。
+  - **自動化推送**：程式碼 Push 至 `master`/`main` 或發布 Tag 時，自動推播至 Docker Hub (`tbdavid2019/linebot-gemini-summarize`、`tbdavid2019/line-bot-talk-group`) 與 GHCR。
+  - **Watchtower 無縫聯動**：伺服器端容器 `LINE-377mwhqu` 與 `LINE-113huwec` 自動偵測 Docker Hub 最新版並無感重啟升級。
 - ✅ **Docker Compose & Watchtower 自動更新架構**：
   - 提供完整 `docker-compose.yml` 支援 `LINE-377mwhqu` 與 `LINE-113huwec`
   - 配置專屬 Scope 隔離的 `watchtower-linebot`，實現零停機安全自動化更新
@@ -364,7 +368,28 @@ https://你的域名/webhooks/line
 
 ### Docker 部署
 
-#### 建立 Docker Image
+#### 🚀 GitHub Actions 自動建置與推播 (雙架構 arm64 / x86_64)
+
+專案已內建完整的 GitHub Actions 工作流程（`.github/workflows/docker-build-push.yml`），只需設定一次 GitHub Secrets 即可全自動運作：
+
+##### 1. 設定 GitHub Secrets
+請至 GitHub 倉庫頁面：`Settings` ➔ `Secrets and variables` ➔ `Actions` ➔ `New repository secret` 加入以下兩組：
+
+| Secret 名稱 | 說明 | 範例 |
+|---|---|---|
+| `DOCKERHUB_USERNAME` | 你的 Docker Hub 帳號 | `tbdavid2019` |
+| `DOCKERHUB_TOKEN` | 你的 Docker Hub Access Token（或密碼） | `dckr_pat_xxx...` |
+
+##### 2. 自動化觸發與多架構支援
+- **雙架構原生映像**：每次 push 到 `master`/`main` 或發布 Tag 時，自動由 QEMU + Buildx 編譯 **`linux/amd64` (x64)** 與 **`linux/arm64` (ARM64)** 雙架構映像檔。
+- **推播端點**：
+  - `docker.io/<username>/linebot-gemini-summarize:latest`
+  - `docker.io/<username>/line-bot-talk-group:latest`
+  - `ghcr.io/<owner>/line-bot-talk-group:latest`
+- **手動執行**：亦可在 GitHub 介面的 `Actions` 標籤頁點擊 `Run workflow` 手動觸發建置。
+
+#### 本地建立 Docker Image
+
 
 ```bash
 # 建立 Docker image

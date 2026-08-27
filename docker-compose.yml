@@ -1,7 +1,7 @@
 services:
   line-377mwhqu:
     build: .
-    image: linebot-gemini-summarize:latest
+    image: tbdavid2019/linebot-gemini-summarize:latest
     container_name: LINE-377mwhqu
     restart: unless-stopped
     ports:
@@ -23,7 +23,7 @@ services:
 
   line-113huwec:
     build: .
-    image: linebot-gemini-summarize:latest
+    image: tbdavid2019/linebot-gemini-summarize:latest
     container_name: LINE-113huwec
     restart: unless-stopped
     ports:

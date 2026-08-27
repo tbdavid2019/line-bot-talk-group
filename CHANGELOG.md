@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## 2026-08-27
 
 ### Added
+- **GitHub Actions Multi-Arch Docker Hub CI/CD (`.github/workflows/docker-build-push.yml`)**:
+  - Configured automated GitHub Actions workflow utilizing QEMU and Docker Buildx to build and push dual-architecture Docker images (`linux/amd64`, `linux/arm64`) to Docker Hub (`tbdavid2019/linebot-gemini-summarize`, `tbdavid2019/line-bot-talk-group`) and GitHub Container Registry (GHCR).
+  - Integrated GitHub Secrets (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`) with fallback repository naming.
+  - Added triggers on push to `master`/`main`, release tags (`v*`), pull requests, and manual execution (`workflow_dispatch`).
+  - Added `.dockerignore` to secure API keys, credentials, local virtual environments, and cache files from Docker contexts.
+  - Optimized `Dockerfile` layer caching and added system dependencies (`git`, `curl`) for robust multi-arch compilation.
 - **Autonomous Multi-Turn Tool Calling & Agent Loop (`services/llm.py`)**:
   - Empowered `LLMService` (`gpt-5.6-luna`) with autonomous tool calling:
     - `search_web(query)`: 2MD SERP live web search

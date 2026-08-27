@@ -6,7 +6,10 @@ Google Cloud Storage 連接測試腳本
 import os
 import sys
 from datetime import datetime
-from google.cloud import storage
+try:
+    from google.cloud import storage
+except ImportError:
+    storage = None
 
 # 載入環境變數
 if os.getenv('API_ENV') != 'production':
@@ -36,6 +39,10 @@ def test_gcs_connection():
         print(f"❌ 錯誤: 認證檔案不存在: {credentials_path}")
         return False
     
+    if not storage:
+        print("❌ 錯誤: google.cloud.storage 模組未安裝")
+        return False
+
     try:
         # 初始化 Storage client
         print("\n📡 正在連接 Google Cloud Storage...")

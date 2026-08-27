@@ -1,17 +1,31 @@
-"""Gemini text-generation boundary."""
+"""Gemini text-generation boundary (delegates to unified LLMService)."""
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
+from services.llm import LLMService, LLMResponse
 
 
 class GeminiService:
-    def __init__(self, model_name: str, model_factory: Callable[[str], Any]) -> None:
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        model_factory: Optional[Callable[[str], Any]] = None
+    ) -> None:
         self.model_name = model_name
         self.model_factory = model_factory
+        self._llm_service = LLMService()
 
     def generate_content(self, contents: Any) -> Any:
-        return self.model_factory(self.model_name).generate_content(contents)
+        if self.model_factory is not None:
+            # If a custom test mock or model factory was supplied
+            try:
+                model_instance = self.model_factory(self.model_name or "gemini-flash-latest")
+                if hasattr(model_instance, "generate_content"):
+                    return model_instance.generate_content(contents)
+            except Exception:
+                pass
+        return self._llm_service.generate_content(contents)
 
 
 class GeminiImageService:
@@ -32,4 +46,3 @@ class GeminiImageService:
             config=config,
         )
         return list(response)
-

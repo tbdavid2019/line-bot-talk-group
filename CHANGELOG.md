@@ -4,7 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## 2026-08-27
 
-### Added
+- **Unified LLM Service (`services/llm.py`)**:
+  - Implemented `LLMService` with automatic multi-tier failover:
+    - Primary: `https://nen.com.tw/v1` (`gpt-5.6-luna`)
+    - Fallback: `https://api.groq.com/openai/v1` (`openai/gpt-oss-20b`)
+    - 3rd Tier: Google Gemini (`gemini-flash-latest`)
+  - Added unit test suite `test/test_llm_service.py`.
+- **Image Generator Service (`services/image_generator.py`)**:
+  - Implemented `ImageGeneratorService` utilizing `https://nen.com.tw/v1` (`gemini-3.1-flash-image`) with seamless base64 decoding and automatic upload to 888box storage.
+  - Added unit test suite `test/test_image_generator.py`.
 - **David888 Wiki Publisher Service (`services/wiki_publisher.py`)**:
   - Implemented `WikiPublisherService` integrating REST publishing with `https://wiki.david888.com/api`.
   - **LLM Autonomous Wiki Publishing (AI-First Canvas)**: Whenever a user requests in-depth analysis, research reports, tutorials, or system designs, LLM autonomously drafts rich Markdown with `[TOC]`, section headings, and diagrams, publishes it directly to David888 Wiki, and replies in LINE with a clean executive summary plus public `shareUrl`.

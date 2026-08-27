@@ -9,7 +9,13 @@ Line @377mwhqu
 
 ## 🆕 版本更新
 
-### v3.4 (2026-08-27)
+- ✅ **全雙工智慧 LLM 推論升級 (Primary ➔ Fallback ➔ Gemini)**：
+  - **主要 LLM**：`https://nen.com.tw/v1` (`gpt-5.6-luna`)
+  - **備用 LLM**：`https://api.groq.com/openai/v1` (`openai/gpt-oss-20b`)
+  - **第 3 備援**：Google Gemini Flash API (`gemini-flash-latest`)
+- ✅ **AI 繪圖引擎全新升級 (Primary: `gemini-3.1-flash-image` + 888box CDN)**：
+  - 支援透過 `https://nen.com.tw/v1` 調用 `gemini-3.1-flash-image` 進行極速繪圖
+  - 自動提取圖片並即時推送至 888box 多節點 CDN 儲存庫，生成專屬預覽連結
 - ✅ **David888 Wiki 知識庫發布整合 (AI-First Canvas)**：
   - **LLM 自主長篇發布**：人類交代長篇分析、專題研究、系統架構或教學手冊時，LLM 自主編寫完整 Markdown（含 `[TOC]` 目錄、章節、表格與 Mermaid 圖表）並發布至 `wiki.david888.com`，在 LINE 中回傳精華摘要與線上閱讀連結 (`shareUrl`)。
   - **群組指令**：支援 `!wiki summary`（一鍵將對話轉存為 Wiki 專頁）與 `!wiki <標題> <內容>`。

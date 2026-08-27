@@ -44,6 +44,8 @@ from asr import ASRHandler
 import drive_export
 from services.firebase import FirebaseService
 from services.gemini import GeminiService
+from services.llm import LLMService
+from services.image_generator import ImageGeneratorService
 from services.box_storage import BoxStorageService
 from services.wiki_publisher import WikiPublisherService
 
@@ -197,6 +199,12 @@ else:
     storage_client = None
     bucket = None
 
+# Initialize LLM Service (Primary: nen.com.tw / gpt-5.6-luna, Fallback: Groq / openai/gpt-oss-20b, Gemini)
+llm_service = LLMService()
+
+# Initialize Image Generator Service (Primary: nen.com.tw / gemini-3.1-flash-image, Fallback: Google GenAI)
+image_generator_service = ImageGeneratorService()
+
 # Initialize Box Storage Service (Primary: box.david888.com, Fallback: box.glsoft.ai, box.aiurl.tw)
 box_storage_service = BoxStorageService()
 
@@ -296,9 +304,9 @@ async def upload_image_to_gcs(image_data, filename, mime_type="image/png"):
         return None
 
 
-async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
+async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=10):
     """
-    使用 Gemini 生成圖片
+    使用 AI (Primary: nen.com.tw gemini-3.1-flash-image, Fallback: Google GenAI) 生成圖片並自動存入 888box CDN
     
     Args:
         prompt: 圖片生成的提示詞
@@ -308,160 +316,39 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
     Returns:
         tuple: (成功狀態, 結果訊息或圖片URL)
     """
-    logging.info(f"Starting generate_image_with_gemini with prompt: {prompt}")
-    
-    # 檢查圖片生成 API 設定
-    if not gemini_image_key:
-        logging.error("Gemini Image API key not configured")
-        return False, "圖片生成功能未設定 API Key"
+    logging.info(f"Starting image generation with prompt: {prompt}")
     
     for attempt in range(max_retries + 1):
         if attempt > 0:
             logging.info(f"Retry attempt {attempt}/{max_retries} after {retry_delay} seconds...")
             await asyncio.sleep(retry_delay)
-        
+            
         try:
-            logging.info(f"Creating Gemini Image client with API key: {gemini_image_key[:10]}...{gemini_image_key[-5:] if gemini_image_key else 'None'}")
-            client = genai_v2.Client(api_key=gemini_image_key)
-            
-            # 使用環境變數設定的模型
-            model = gemini_image_model
-            logging.info(f"Using image model: {model} (attempt {attempt + 1})")
-            
-            # 使用簡單直接的提示詞，測試證實有效
-            prompts_to_try = [
-                f"Create a photorealistic image of a {prompt}. Do not provide text description, only generate the actual image.",
-                f"Generate image: {prompt}",
-                f"Draw: {prompt}"
-            ]
-            
-            current_prompt = prompts_to_try[min(attempt, len(prompts_to_try) - 1)]
-            logging.info(f"Using prompt strategy {attempt + 1}: {current_prompt[:80]}...")
-            
-            # 使用簡單的內容結構，與測試中成功的相同
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=current_prompt),
-                    ],
-                ),
-            ]
-            
-            generate_content_config = types.GenerateContentConfig(
-                response_modalities=["IMAGE", "TEXT"],
+            success, img_bytes, mime_type = await asyncio.to_thread(
+                image_generator_service.generate_image_bytes,
+                prompt
             )
-            
-            logging.info("Starting content generation stream...")
-            
-            # 生成內容
-            image_url = None
-            text_response = ""
-            chunk_count = 0
-            
-            def generate_chunks():
-                return list(client.models.generate_content_stream(
-                    model=model,
-                    contents=contents,
-                    config=generate_content_config,
-                ))
-
-            for chunk in await asyncio.to_thread(generate_chunks):
-                chunk_count += 1
-                logging.info(f"Processing chunk {chunk_count}")
+            if success and img_bytes:
+                file_extension = mimetypes.guess_extension(mime_type) or '.png'
+                safe_prompt = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in prompt).rstrip()[:30]
+                filename = f"ai_image_{safe_prompt}_{int(datetime.now().timestamp())}{file_extension}"
                 
-                # 檢查 chunk 是否有有效的 candidates
-                if (
-                    not hasattr(chunk, 'candidates') or
-                    chunk.candidates is None or
-                    len(chunk.candidates) == 0 or
-                    chunk.candidates[0].content is None or
-                    chunk.candidates[0].content.parts is None or
-                    len(chunk.candidates[0].content.parts) == 0
-                ):
-                    logging.warning(f"Chunk {chunk_count} has no valid content")
-                    continue
-                    
-                part = chunk.candidates[0].content.parts[0]
-                logging.info(f"Chunk {chunk_count} part type: {type(part)}")
-                
-                # 檢查是否有 inline_data
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    logging.info(f"Found inline_data in chunk {chunk_count}: {type(part.inline_data)}")
-                    if hasattr(part.inline_data, 'data') and part.inline_data.data:
-                        logging.info(f"Found image data in chunk {chunk_count}")
-                        inline_data = part.inline_data
-                        image_data = inline_data.data
-                        logging.info(f"Image data size: {len(image_data)} bytes")
-                        logging.info(f"Image MIME type: {inline_data.mime_type}")
-                        
-                        file_extension = mimetypes.guess_extension(inline_data.mime_type) or '.png'
-                        logging.info(f"File extension: {file_extension}")
-                        
-                        # 建立檔案名稱 (移除空格，使用底線替代)
-                        safe_prompt = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in prompt).rstrip()[:30]
-                        filename = f"gemini_image_{safe_prompt}{file_extension}"
-                        logging.info(f"Generated filename: {filename}")
-                        
-                        # 上傳到儲存空間 (優先 888box CDN，容錯 GCS)
-                        logging.info("Starting upload to storage...")
-                        image_url = await upload_asset_to_storage(image_data, filename, inline_data.mime_type, title=prompt)
-                        logging.info(f"Upload result: {image_url}")
-                        
-                        # 一旦找到圖片就跳出迴圈
-                        if image_url:
-                            logging.info("Image found and uploaded successfully, breaking loop")
-                            break
-                    else:
-                        logging.info(f"inline_data exists but no data: {part.inline_data}")
-                else:
-                    logging.info(f"No inline_data in chunk {chunk_count}")
-                
-                # 處理文字回應
-                if hasattr(part, 'text') and part.text:
-                    text_response += part.text
-                    logging.info(f"Received text in chunk {chunk_count}: {part.text[:100]}...")
-                elif hasattr(chunk, 'text') and chunk.text:
-                    text_response += chunk.text
-                    logging.info(f"Received text from chunk object in chunk {chunk_count}: {chunk.text[:100]}...")
-                else:
-                    logging.info(f"Chunk {chunk_count} has no text data")
-            
-            logging.info(f"Finished processing {chunk_count} chunks")
-            logging.info(f"Final image_url: {image_url}")
-            logging.info(f"Final text_response: {text_response[:200]}...")
-            
-            if image_url:
-                logging.info("Image generation successful")
-                return True, image_url
+                logging.info(f"Uploading generated image ({len(img_bytes)} bytes) to storage...")
+                image_url = await upload_asset_to_storage(
+                    img_bytes,
+                    filename,
+                    mime_type=mime_type,
+                    title=prompt
+                )
+                if image_url:
+                    logging.info(f"Image generation and storage upload successful: {image_url}")
+                    return True, image_url
             else:
-                if text_response:
-                    logging.warning(f"Model returned text only, no image generated. Text: {text_response[:200]}")
-                    return False, "❌ 模型只返回文字說明而未生成圖片。請嘗試更具體的描述，例如：'一位台灣婦女在傳統市場挑選新鮮蔬菜的真實照片'"
-                else:
-                    return False, "❌ 圖片生成失敗，請稍後再試。"
-                
+                logging.warning(f"Image generation failed on attempt {attempt + 1}")
         except Exception as e:
-            logging.error(f"Error generating image with Gemini (attempt {attempt + 1}): {e}")
-            
-            # 檢查是否為配額錯誤
-            error_msg = str(e)
-            is_quota_error = "429" in error_msg and "RESOURCE_EXHAUSTED" in error_msg
-            is_rate_limit = "429" in error_msg
-            
-            if attempt < max_retries and is_rate_limit:
-                logging.info(f"Rate limit hit, will retry in {retry_delay} seconds...")
-                continue
-            else:
-                # 最後一次嘗試或非重試錯誤
-                if is_quota_error:
-                    return False, "❌ 圖片生成配額已用盡，請稍後再試或升級至付費方案。"
-                elif "quota" in error_msg.lower():
-                    return False, "❌ API 配額不足，請檢查您的 Google AI 使用額度。"
-                else:
-                    return False, "❌ 生成圖片時發生錯誤，請稍後再試。"
-    
-    return False, "❌ 經過多次重試仍無法生成圖片，請稍後再試。"
+            logging.error(f"Error during image generation (attempt {attempt + 1}): {e}")
+
+    return False, "❌ 生成圖片失敗，請稍後再試。"
 
 
 def is_bot_mentioned(event, bot_id=None, text=None):

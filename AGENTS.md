@@ -52,3 +52,16 @@ When generating or downloading images, videos, audio, or files, integrate with t
 - **Formatting Standards**: 確保包含 H1 標題、`[TOC]` 目錄、清晰 H2/H3 章節、表格或 Mermaid 圖表，預設主題 `claude-canvas`。
 - **Service Implementation**: Handled in `services/wiki_publisher.py` via `WikiPublisherService` (內建 `format_and_publish_if_long` 自動判斷與轉發布機制)。
 
+---
+
+## 🤖 5. LLM & Image Generation Infrastructure
+- **LLM Text Generation**:
+  - **Primary**: `https://nen.com.tw/v1` (Model: `gpt-5.6-luna`, Env: `LLM_API_KEY`)
+  - **Fallback**: `https://api.groq.com/openai/v1` (Model: `openai/gpt-oss-20b`, Env: `LLM_FALLBACK_API_KEY`)
+  - **3rd Tier**: Google Gemini Flash API (`gemini-flash-latest`)
+  - **Implementation**: Handled in `services/llm.py` via `LLMService`.
+- **Image Generation**:
+  - **Primary**: `https://nen.com.tw/v1` (Model: `gemini-3.1-flash-image`, Env: `IMAGE_API_KEY` / `LLM_API_KEY`)
+  - **Storage**: Automatically uploaded and served via `888box` multi-tier CDN (`services/box_storage.py`).
+  - **Implementation**: Handled in `services/image_generator.py` via `ImageGeneratorService`.
+

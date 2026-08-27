@@ -1,4 +1,4 @@
-"""Image Generator Service supporting nen.com.tw (gemini-3.1-flash-image) and Google GenAI fallback."""
+"""Image Generator Service supporting Primary (nen.com.tw) and Fallback (Google Generative Language)."""
 
 from __future__ import annotations
 
@@ -15,40 +15,67 @@ logger = logging.getLogger(__name__)
 class ImageGeneratorService:
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
+        primary_base_url: Optional[str] = None,
+        primary_model: Optional[str] = None,
+        primary_api_key: Optional[str] = None,
+        fallback_base_url: Optional[str] = None,
+        fallback_model: Optional[str] = None,
+        fallback_api_key: Optional[str] = None,
         timeout: int = 45
     ) -> None:
-        self.base_url = (
-            base_url or os.getenv("IMAGE_API_BASE") or "https://nen.com.tw/v1"
+        # 1. Primary Endpoint (nen.com.tw / gemini-3.1-flash-image)
+        self.primary_base_url = (
+            primary_base_url or os.getenv("IMAGE_API_BASE") or "https://nen.com.tw/v1"
         ).rstrip('/')
-        self.model = model or os.getenv("IMAGE_MODEL") or "gemini-3.1-flash-image"
-        self.api_key = (
-            api_key
+        self.primary_model = primary_model or os.getenv("IMAGE_MODEL") or "gemini-3.1-flash-image"
+        self.primary_api_key = (
+            primary_api_key
             or os.getenv("IMAGE_API_KEY")
             or os.getenv("LLM_API_KEY")
             or ""
         )
+
+        # 2. Fallback Endpoint (Google Generative Language API)
+        self.fallback_base_url = (
+            fallback_base_url
+            or os.getenv("IMAGE_FALLBACK_BASE")
+            or "https://generativelanguage.googleapis.com/v1beta"
+        ).rstrip('/')
+        self.fallback_model = (
+            fallback_model
+            or os.getenv("IMAGE_FALLBACK_MODEL")
+            or os.getenv("GEMINI_IMAGE_MODEL")
+            or "gemini-3.1-flash-image"
+        )
+        self.fallback_api_key = (
+            fallback_api_key
+            or os.getenv("IMAGE_FALLBACK_API_KEY")
+            or os.getenv("GEMINI_IMAGE_API_KEY")
+            or os.getenv("ASR_GEMINI_API_KEY")
+            or os.getenv("GEMINI_LLM_API_KEY")
+            or ""
+        )
+
         self.timeout = timeout
 
     def generate_image_bytes(self, prompt: str) -> Tuple[bool, Optional[bytes], str]:
         """
-        Generates an image via nen.com.tw gemini-3.1-flash-image.
+        Generates an image with multi-tier failover:
+        Primary (nen.com.tw / gemini-3.1-flash-image) -> Fallback (Google Generative Language API).
         Returns: (success: bool, image_bytes: bytes, mime_type: str)
         """
         # 1. Primary Image Generation (nen.com.tw / gemini-3.1-flash-image)
-        if self.base_url and self.api_key and self.model:
+        if self.primary_base_url and self.primary_api_key and self.primary_model:
             try:
-                logger.info(f"Generating image via Primary API ({self.model} @ {self.base_url}) for prompt: '{prompt}'")
+                logger.info(f"Generating image via Primary API ({self.primary_model} @ {self.primary_base_url}) for: '{prompt[:60]}'...")
                 resp = requests.post(
-                    f"{self.base_url}/chat/completions",
+                    f"{self.primary_base_url}/chat/completions",
                     headers={
-                        "Authorization": f"Bearer {self.api_key}",
+                        "Authorization": f"Bearer {self.primary_api_key}",
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": self.model,
+                        "model": self.primary_model,
                         "messages": [
                             {"role": "user", "content": f"Generate image: {prompt}"}
                         ]
@@ -61,14 +88,14 @@ class ImageGeneratorService:
                     if choices:
                         content = choices[0].get("message", {}).get("content", "")
                         
-                        # Match data:image/png;base64,...
+                        # Match data:image/png;base64,... or data:image/jpeg;base64,...
                         m = re.search(r'data:image\/([a-zA-Z]+);base64,([A-Za-z0-9+/=]+)', content)
                         if m:
                             fmt = m.group(1).lower()
                             mime_type = f"image/{fmt}"
                             b64_data = m.group(2)
                             img_bytes = base64.b64decode(b64_data)
-                            logger.info(f"Successfully generated {fmt} image ({len(img_bytes)} bytes)")
+                            logger.info(f"Primary API generated {fmt} image ({len(img_bytes)} bytes)")
                             return True, img_bytes, mime_type
 
                         # Match direct image URL in markdown ![...](https://...)
@@ -80,29 +107,65 @@ class ImageGeneratorService:
                                 content_type = img_resp.headers.get("Content-Type", "image/png")
                                 return True, img_resp.content, content_type
 
-                        logger.warning(f"No image extracted from model response: {content[:200]}")
+                        logger.warning(f"No image extracted from Primary response: {content[:200]}")
                 else:
-                    logger.error(f"Primary Image API returned HTTP {resp.status_code}: {resp.text[:200]}")
+                    logger.warning(f"Primary Image API returned HTTP {resp.status_code}: {resp.text[:200]}")
             except Exception as e:
-                logger.error(f"Primary Image API error: {e}")
+                logger.warning(f"Primary Image API failed: {e}. Switching to Fallback...")
 
-        # 2. Fallback to Google GenAI Client if configured
-        gemini_image_key = (
-            os.getenv("GEMINI_IMAGE_API_KEY")
-            or os.getenv("ASR_GEMINI_API_KEY")
-            or os.getenv("GEMINI_API_KEY")
-        )
-        if gemini_image_key:
+        # 2. Fallback Image Generation (Google Generative Language API)
+        if self.fallback_api_key:
+            models_to_try = [
+                self.fallback_model,
+                "gemini-3.1-flash-image",
+                "gemini-3-pro-image-preview",
+                "gemini-2.5-flash-image"
+            ]
+            # Deduplicate preserving order
+            seen = set()
+            unique_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
+
+            for model_candidate in unique_models:
+                try:
+                    logger.info(f"Attempting Fallback Image API ({model_candidate} @ Google API)...")
+                    url = f"{self.fallback_base_url}/models/{model_candidate}:generateContent?key={self.fallback_api_key}"
+                    resp = requests.post(
+                        url,
+                        headers={"Content-Type": "application/json"},
+                        json={
+                            "contents": [{"parts": [{"text": f"Create a photorealistic image: {prompt}"}]}],
+                            "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
+                        },
+                        timeout=self.timeout
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            for part in parts:
+                                inline_data = part.get("inlineData")
+                                if inline_data and inline_data.get("data"):
+                                    mime_type = inline_data.get("mimeType", "image/png")
+                                    img_bytes = base64.b64decode(inline_data["data"])
+                                    logger.info(f"Fallback Image API succeeded with {model_candidate} ({len(img_bytes)} bytes, {mime_type})")
+                                    return True, img_bytes, mime_type
+                    else:
+                        logger.warning(f"Fallback model {model_candidate} returned HTTP {resp.status_code}: {resp.text[:200]}")
+                except Exception as e:
+                    logger.warning(f"Fallback model {model_candidate} error: {e}")
+
+        # 3. Last Resort Fallback: Google GenAI Client SDK
+        if self.fallback_api_key:
             try:
-                logger.info("Attempting fallback image generation via Google GenAI...")
+                logger.info("Attempting last resort fallback via google-genai Client SDK...")
                 from google import genai as genai_v2
                 from google.genai import types as genai_types
-                client = genai_v2.Client(api_key=gemini_image_key)
+                client = genai_v2.Client(api_key=self.fallback_api_key)
                 response = client.models.generate_content_stream(
-                    model=os.getenv("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview"),
+                    model=self.fallback_model,
                     contents=[
-                        f"Create a photorealistic image of a {prompt}. Do not provide text description, only generate the actual image.",
-                        f"Generate image: {prompt}",
+                        f"Create a photorealistic image of {prompt}. Do not provide text description, only generate the actual image."
                     ],
                     config=genai_types.GenerateContentConfig(response_modalities=["IMAGE"])
                 )
@@ -112,6 +175,6 @@ class ImageGeneratorService:
                         if inline_data and getattr(inline_data, 'data', None):
                             return True, inline_data.data, inline_data.mime_type or "image/png"
             except Exception as e:
-                logger.error(f"Google GenAI fallback image generation failed: {e}")
+                logger.error(f"Google GenAI SDK fallback failed: {e}")
 
         return False, None, ""

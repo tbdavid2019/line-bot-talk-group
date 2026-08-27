@@ -62,6 +62,7 @@ When generating or downloading images, videos, audio, or files, integrate with t
   - **Implementation**: Handled in `services/llm.py` via `LLMService`.
 - **Image Generation**:
   - **Primary**: `https://nen.com.tw/v1` (Model: `gemini-3.1-flash-image`, Env: `IMAGE_API_KEY` / `LLM_API_KEY`)
+  - **Fallback**: `https://generativelanguage.googleapis.com/v1beta` (Model: `gemini-3.1-flash-image`, Env: `IMAGE_FALLBACK_API_KEY`)
   - **Storage**: Automatically uploaded and served via `888box` multi-tier CDN (`services/box_storage.py`).
   - **Implementation**: Handled in `services/image_generator.py` via `ImageGeneratorService`.
 

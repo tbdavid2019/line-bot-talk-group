@@ -11,8 +11,11 @@ All notable changes to this project will be documented in this file.
     - 3rd Tier: Google Gemini (`gemini-flash-latest`)
   - Added unit test suite `test/test_llm_service.py`.
 - **Image Generator Service (`services/image_generator.py`)**:
-  - Implemented `ImageGeneratorService` utilizing `https://nen.com.tw/v1` (`gemini-3.1-flash-image`) with seamless base64 decoding and automatic upload to 888box storage.
-  - Added unit test suite `test/test_image_generator.py`.
+  - Implemented `ImageGeneratorService` with dual-tier failover:
+    - Primary: `https://nen.com.tw/v1` (`gemini-3.1-flash-image`)
+    - Fallback: `https://generativelanguage.googleapis.com/v1beta` (`gemini-3.1-flash-image` / `gemini-3-pro-image-preview` / `gemini-2.5-flash-image`)
+    - Storage: Automatic multi-tier CDN storage via 888box (`services/box_storage.py`).
+  - Added unit test suite `test/test_image_generator.py` covering primary success, fallback recovery, and storage upload.
 - **David888 Wiki Publisher Service (`services/wiki_publisher.py`)**:
   - Implemented `WikiPublisherService` integrating REST publishing with `https://wiki.david888.com/api`.
   - **LLM Autonomous Wiki Publishing (AI-First Canvas)**: Whenever a user requests in-depth analysis, research reports, tutorials, or system designs, LLM autonomously drafts rich Markdown with `[TOC]`, section headings, and diagrams, publishes it directly to David888 Wiki, and replies in LINE with a clean executive summary plus public `shareUrl`.

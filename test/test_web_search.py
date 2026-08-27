@@ -73,7 +73,7 @@ class TestWebSearchService(unittest.TestCase):
         prompt = "請幫我摘要這個網頁：https://news.ycombinator.com"
         enriched = self.service.enrich_prompt_with_web(prompt)
 
-        self.assertIn("即時網路檢索與網頁內容參考", enriched)
+        self.assertIn("即時網路檢索與即時資料參考", enriched)
         self.assertIn("Hacker News Top Story", enriched)
 
 

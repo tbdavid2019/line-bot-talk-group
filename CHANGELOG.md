@@ -5,8 +5,14 @@ All notable changes to this project will be documented in this file.
 ## 2026-08-27
 
 ### Added
+- **Autonomous Multi-Turn Tool Calling & Agent Loop (`services/llm.py`)**:
+  - Empowered `LLMService` (`gpt-5.6-luna`) with autonomous tool calling:
+    - `search_web(query)`: 2MD SERP live web search
+    - `read_web_page(url)`: 2MD Fast Reader full Markdown extraction
+    - `get_live_weather(location)`: Instant meteorological telemetry (temperature, feels-like, condition, humidity, wind speed, UV index, forecasts)
+  - Implemented multi-turn tool execution loop resolving user inquiries with zero excuses and zero hallucinations.
 - **2MD Fast Reader & SERP Live Web Search Engine (`services/web_search.py`)**:
-  - Implemented `WebSearchService` integrating real-time web search (SERP) and URL to Markdown reader across multi-tier 2MD endpoints:
+  - Implemented `WebSearchService` integrating real-time web search (SERP), live meteorology telemetry, and URL to Markdown reader across multi-tier 2MD endpoints:
     - Primary: `https://2md.aiurl.tw`
     - Fallback 1: `https://2md.glsoft.ai`
     - Fallback 2: `https://create360.ai`

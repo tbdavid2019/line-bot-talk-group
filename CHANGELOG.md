@@ -7,9 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - **David888 Wiki Publisher Service (`services/wiki_publisher.py`)**:
   - Implemented `WikiPublisherService` integrating REST publishing with `https://wiki.david888.com/api`.
-  - Added support for auto-generating structured Markdown articles with `[TOC]`, interactive themes (`claude-canvas`), and returning public `shareUrl`.
-  - Added commands `!wiki summary` (AI summary to Wiki) and `!wiki <title> <content>` (direct note publishing).
-  - Added unit test suite `test/test_wiki_publisher.py`.
+  - **LLM Autonomous Wiki Publishing (AI-First Canvas)**: Whenever a user requests in-depth analysis, research reports, tutorials, or system designs, LLM autonomously drafts rich Markdown with `[TOC]`, section headings, and diagrams, publishes it directly to David888 Wiki, and replies in LINE with a clean executive summary plus public `shareUrl`.
+  - Added commands `!wiki summary` (AI summary to Wiki) and `!wiki <title> <content>`.
+  - Added unit test suite `test/test_wiki_publisher.py` covering auto-publishing logic, markdown formatting, and API integration.
 - **888box Asset Storage Service (`services/box_storage.py`)**:
   - Implemented `BoxStorageService` supporting high-speed asset uploads and CDN delivery.
   - Multi-tier automatic failover across Primary (`https://box.david888.com`), Fallback 1 (`https://box.glsoft.ai`), and Fallback 2 (`https://box.aiurl.tw`).

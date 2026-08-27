@@ -1354,9 +1354,15 @@ async def handle_callback(request: Request):
                             
                             response = await asyncio.to_thread(
                                 gemini_service.generate_content,
-                                f"請用繁體中文回答以下問題：{clean_question}",
+                                f"請用繁體中文回答以下問題。若為長篇深入分析、架構規劃或教學，請使用具備清晰章節標題、[TOC]、重點清單或表格的完整 Markdown 格式：\n{clean_question}",
                             )
-                            reply_msg = response.text
+                            raw_reply = response.text
+                            # 若產出為長篇分析/報告，LLM 自動發布至 David888 Wiki 並附上 shareUrl
+                            reply_msg = await asyncio.to_thread(
+                                wiki_publisher_service.format_and_publish_if_long,
+                                clean_question,
+                                raw_reply
+                            )
                             # AI 問答不記錄到對話歷史，所以移除剛加入的訊息
                             messages.pop()  # 移除剛才加入的用戶訊息
                         except Exception as e:
@@ -1382,7 +1388,13 @@ async def handle_callback(request: Request):
                             response = await asyncio.to_thread(
                                 gemini_service.generate_content, gemini_messages
                             )
-                            reply_msg = response.text
+                            raw_reply = response.text
+                            # 若產出為長篇分析/報告，LLM 自動發布至 David888 Wiki 並附上 shareUrl
+                            reply_msg = await asyncio.to_thread(
+                                wiki_publisher_service.format_and_publish_if_long,
+                                text,
+                                raw_reply
+                            )
                             messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
                             logging.info(f"Generated AI response for general conversation: {reply_msg[:50]}...")
                         except Exception as e:

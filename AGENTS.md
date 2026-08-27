@@ -42,13 +42,13 @@ When generating or downloading images, videos, audio, or files, integrate with t
 
 ---
 
-## 📖 4. David888 Wiki Publishing Integration
-When publishing knowledge notes, articles, or conversation summaries to David888 Wiki:
-
+## 📖 4. David888 Wiki Publishing Integration (AI-First Autonomous Canvas)
+**Wiki 的核心定位是 LLM 的長篇知識庫畫布（AI-First Publishing Canvas）**：
+- **設計哲學**：主要不是給人類手動輸入繁瑣指令，而是當人類交代 LLM 處理長篇分析、專題研究、系統架構設計或教學指南時，**LLM 自主編寫高結構化 Markdown 並主動發布至 Wiki，回傳 `shareUrl` 給人類在瀏覽器閱讀**。
 - **API Base URL**: `https://wiki.david888.com/api`
 - **Skill Spec**: `https://wiki.david888.com/.well-known/agent-skills/david888-wiki-publisher/SKILL.md`
 - **Publish Endpoint**: `POST https://wiki.david888.com/api/<path>`
 - **CRITICAL RULE**: Always extract and provide the **`shareUrl`** (e.g. `https://wiki.david888.com/share/<id>`) to the user. Never return the internal edit `url`.
-- **Formatting Standards**: Include `[TOC]`, clear H2/H3 headers, and default theme `claude-canvas` or `retro`.
-- **Service Implementation**: Handled in `services/wiki_publisher.py` via `WikiPublisherService`.
+- **Formatting Standards**: 確保包含 H1 標題、`[TOC]` 目錄、清晰 H2/H3 章節、表格或 Mermaid 圖表，預設主題 `claude-canvas`。
+- **Service Implementation**: Handled in `services/wiki_publisher.py` via `WikiPublisherService` (內建 `format_and_publish_if_long` 自動判斷與轉發布機制)。
 

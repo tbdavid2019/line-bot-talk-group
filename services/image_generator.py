@@ -125,10 +125,12 @@ class ImageGeneratorService:
             seen = set()
             unique_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
 
+            clean_base_url = re.sub(r'/openai/?$', '', self.fallback_base_url)
             for model_candidate in unique_models:
+                clean_model = model_candidate.replace('models/', '')
                 try:
-                    logger.info(f"Attempting Fallback Image API ({model_candidate} @ Google API)...")
-                    url = f"{self.fallback_base_url}/models/{model_candidate}:generateContent?key={self.fallback_api_key}"
+                    logger.info(f"Attempting Fallback Image API ({clean_model} @ Google Generative Language API)...")
+                    url = f"{clean_base_url}/models/{clean_model}:generateContent?key={self.fallback_api_key}"
                     resp = requests.post(
                         url,
                         headers={"Content-Type": "application/json"},

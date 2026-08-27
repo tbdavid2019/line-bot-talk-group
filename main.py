@@ -1028,9 +1028,7 @@ async def handle_callback(request: Request):
                     elif text.lower() in ['!摘要', '！摘要', '!總結', '！總結', '！summary']:
                         if len(messages) > 1:  # 確保有對話內容可以摘要
                             try:
-                                gemini_service = GeminiService(
-                                    gemini_llm_model, genai.GenerativeModel
-                                )
+                                gemini_service = GeminiService(gemini_llm_model)
                                 # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
                                 gemini_messages = []
                                 for msg in messages:
@@ -1072,9 +1070,7 @@ async def handle_callback(request: Request):
                         elif subcmd in ['summary', '摘要', '總結']:
                             if len(messages) > 1:
                                 try:
-                                    gemini_service = GeminiService(
-                                        gemini_llm_model, genai.GenerativeModel
-                                    )
+                                    gemini_service = GeminiService(gemini_llm_model)
                                     gemini_messages = [{'role': m['role'], 'parts': m['parts']} for m in messages if m.get('role') in ('user', 'model')]
                                     
                                     prompt_summary = f"""請將以下群組對話記錄整理成一份專業、結構清晰的 Markdown 知識庫筆記，請使用繁體中文。
@@ -1227,9 +1223,7 @@ async def handle_callback(request: Request):
                     elif is_ai_question:
                         # AI 問答模式：一次性回答，不記錄到對話歷史（群組中的 @ 提及）
                         try:
-                            gemini_service = GeminiService(
-                                gemini_llm_model, genai.GenerativeModel
-                            )
+                            gemini_service = GeminiService(gemini_llm_model)
                             # 移除 @ 提及部分，只保留問題
                             clean_question = extract_clean_question(text, event, bot_line_id)
                             logging.info(f"Cleaned AI question: '{clean_question}'")
@@ -1255,9 +1249,7 @@ async def handle_callback(request: Request):
                     else:
                         # 一般對話（私人對話或群組中的其他情況）
                         try:
-                            gemini_service = GeminiService(
-                                gemini_llm_model, genai.GenerativeModel
-                            )
+                            gemini_service = GeminiService(gemini_llm_model)
                             # 準備給 Gemini 的訊息格式（移除 timestamp 欄位）
                             gemini_messages = []
                             for msg in messages:

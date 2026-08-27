@@ -34,6 +34,9 @@ All notable changes to this project will be documented in this file.
   - Established permanent protocol requiring automated synchronization of `CHANGELOG.md`, `README.md`, and unit tests on every change.
 
 ### Fixed
+- **GeminiService Direct LLM Delegation Fix**:
+  - Resolved an issue where `GeminiService` passed deprecated `genai.GenerativeModel` directly to Google GenAI SDK which hung the event loop and caused LINE webhook timeouts.
+  - Ensured all conversation and AI query routes in `main.py` and `services/gemini.py` directly route to `LLMService` (`https://nen.com.tw/v1` `gpt-5.6-luna` -> `groq` fallback).
 - **Firebase Auth Decoupling & 401 Lock Resolution**:
   - Removed erroneous fallback from Firebase authentication to `GOOGLE_APPLICATION_CREDENTIALS` (which is exclusively for GCS storage under a different project), resolving 401 Unauthorized errors during event deduplication and message locking.
   - Aligned production `FIREBASE_URL` with active real-time database instance (`https://aicreate360-official-website-default-rtdb.asia-southeast1.firebasedatabase.app/`).

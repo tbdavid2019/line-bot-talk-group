@@ -18,13 +18,14 @@ class GeminiService:
 
     def generate_content(self, contents: Any) -> Any:
         if self.model_factory is not None:
-            # If a custom test mock or model factory was supplied
-            try:
-                model_instance = self.model_factory(self.model_name or "gemini-flash-latest")
-                if hasattr(model_instance, "generate_content"):
-                    return model_instance.generate_content(contents)
-            except Exception:
-                pass
+            factory_name = getattr(self.model_factory, '__name__', '')
+            if factory_name != 'GenerativeModel':
+                try:
+                    model_instance = self.model_factory(self.model_name or "gemini-flash-latest")
+                    if hasattr(model_instance, "generate_content"):
+                        return model_instance.generate_content(contents)
+                except Exception:
+                    pass
         return self._llm_service.generate_content(contents)
 
 

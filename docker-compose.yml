@@ -1,0 +1,56 @@
+services:
+  line-377mwhqu:
+    image: linebot-gemini-summarize:latest
+    container_name: LINE-377mwhqu
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./svc-gcs-uploader-key.json:/app/svc-gcs-uploader-key.json
+      - ./service-account-key.json:/app/service-account-key.json
+    labels:
+      - "com.centurylinklabs.watchtower.scope-label=linebot"
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  line-113huwec:
+    image: linebot-gemini-summarize:latest
+    container_name: LINE-113huwec
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    env_file:
+      - .env2
+    volumes:
+      - ./svc-gcs-uploader-key.json:/app/svc-gcs-uploader-key.json
+      - ./service-account-key.json:/app/service-account-key.json
+    labels:
+      - "com.centurylinklabs.watchtower.scope-label=linebot"
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower-linebot
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_SCOPE=linebot
+    command: LINE-377mwhqu LINE-113huwec

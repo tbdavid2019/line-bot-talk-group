@@ -440,43 +440,88 @@ def is_bot_mentioned(event, bot_id=None, text=None):
         bool: True 如果 Bot 被提及，False 否則
     """
     if text is None:
-        if not isinstance(event.message, TextMessageContent):
+        if not isinstance(getattr(event, 'message', None), TextMessageContent):
             return False
         text = event.message.text
     
-    mention = getattr(event.message, 'mention', None)
+    if not text:
+        return False
     
-    # 方法1: 檢查 mention 物件中是否包含特定的用戶ID
-    if mention and hasattr(mention, 'mentionees'):
-        # 注意：這需要知道 Bot 的實際 user_id，通常格式為 U開頭
-        # 但我們可能無法直接獲取到 Bot 自己的 user_id
-        pass
+    mention = getattr(getattr(event, 'message', None), 'mention', None)
     
-    # 方法2: 檢查文字中是否包含 Bot 的官方 ID
-    if bot_id:
-        # 檢查是否包含 @bot_id 格式（確保 @ 前面沒有其他字符）
-        import re
-        bot_patterns = [
-            rf'(?<![a-zA-Z0-9])@{re.escape(bot_id)}(?![a-zA-Z0-9])',
-            rf'(?<![a-zA-Z0-9])＠{re.escape(bot_id)}(?![a-zA-Z0-9])',
-            rf'(?<![a-zA-Z0-9])@{re.escape(bot_id.lower())}(?![a-zA-Z0-9])',
-            rf'(?<![a-zA-Z0-9])＠{re.escape(bot_id.lower())}(?![a-zA-Z0-9])'
-        ]
-        
-        for pattern in bot_patterns:
-            if re.search(pattern, text):
-                logging.info(f"Bot mentioned with pattern: {pattern}")
+    # 1. 檢查 LINE 官方提供的 Mention 物件
+    if mention and hasattr(mention, 'mentionees') and mention.mentionees:
+        # 遍歷所有 mentionee
+        for mentionee in mention.mentionees:
+            # 官方支援 is_self 屬性（當被 @ 的對象是當前 Bot 時為 True）
+            if getattr(mentionee, 'is_self', False) is True:
+                logging.info("Bot mentioned via native LINE mention (is_self=True)")
                 return True
+            if isinstance(mentionee, dict) and (mentionee.get('isSelf') is True or mentionee.get('is_self') is True):
+                logging.info("Bot mentioned via native LINE mention dict (isSelf=True)")
+                return True
+        
+        # 若有 mention 物件但所有 mentionee 都不是本 Bot (is_self != True)
+        # 代表用戶明確是在 @ 其他人 或 @All，不應誤判為呼叫 Bot
+        logging.info("Mention event found, but bot was not the target (other users/@all mentioned)")
+        return False
     
-    # 方法3: 檢查是否有 mention 且文字包含關鍵詞
-    if mention:
-        # 檢查常見的 Bot 呼叫方式
-        bot_keywords = ['bot', 'Bot', 'BOT', '機器人', '摘要王']
-        if any(keyword in text for keyword in bot_keywords):
-            logging.info(f"Bot mentioned with keyword in text: {text}")
+    # 2. 若無 LINE 原生 mention 物件（用戶純文字手動輸入），檢查是否明確 @ Bot ID
+    import re
+    if bot_id:
+        # 檢查是否包含 @bot_id 或 ＠bot_id（前後非字母數字底線，避免 email 如 test@377mwhqu.com 誤觸發）
+        bot_id_pattern = rf'(?<![\w])[@＠]{re.escape(bot_id)}(?![\w])'
+        if re.search(bot_id_pattern, text, re.IGNORECASE):
+            logging.info(f"Bot mentioned with bot_id pattern: {bot_id}")
+            return True
+    
+    # 3. 純文字手動輸入呼叫通用關鍵詞（例如「@Bot 請問...」、「@機器人 幫我...」）
+    # 必須以 @ 或 ＠ 開頭接關鍵詞，避免內文中無意出現的單詞誤觸發
+    text_stripped = text.strip()
+    generic_patterns = [
+        r'^[@＠](bot|機器人|摘要王)\b',
+        r'^[@＠](bot|機器人|摘要王)\s+',
+        r'^[@＠](bot|機器人|摘要王)[:：,，]'
+    ]
+    for pattern in generic_patterns:
+        if re.search(pattern, text_stripped, re.IGNORECASE):
+            logging.info(f"Bot mentioned with generic pattern: {pattern}")
             return True
     
     return False
+
+
+def extract_clean_question(text: str, event=None, bot_id: str = None) -> str:
+    """
+    從被 @ 提及的訊息中提取乾淨的問題文字，移除 @Bot 或 @提及 部分
+    """
+    if not text:
+        return ""
+    
+    clean_text = text
+    mention = getattr(getattr(event, 'message', None), 'mention', None) if event else None
+    
+    # 1. 若有 LINE 原生 mention，利用 index 與 length 移除對應的 mention 字串
+    if mention and hasattr(mention, 'mentionees') and mention.mentionees:
+        mentionees = sorted(
+            [m for m in mention.mentionees if getattr(m, 'index', None) is not None and getattr(m, 'length', None) is not None],
+            key=lambda x: getattr(x, 'index'),
+            reverse=True
+        )
+        for m in mentionees:
+            idx = getattr(m, 'index')
+            length = getattr(m, 'length')
+            if getattr(m, 'is_self', False) is True or (isinstance(m, dict) and m.get('isSelf') is True):
+                clean_text = clean_text[:idx] + clean_text[idx+length:]
+    
+    # 2. 若還有殘留的 @bot_id 或 @Bot / @機器人 / @摘要王 前綴，進行正則移除
+    import re
+    if bot_id:
+        clean_text = re.sub(rf'(?<![\w])[@＠]{re.escape(bot_id)}(?![\w])', '', clean_text, flags=re.IGNORECASE)
+        
+    clean_text = re.sub(r'^[@＠](bot|機器人|摘要王)\s*[:：,，]?\s*', '', clean_text.strip(), flags=re.IGNORECASE)
+    
+    return clean_text.strip()
 
 
 @app.get("/health")
@@ -1171,14 +1216,8 @@ async def handle_callback(request: Request):
                                 gemini_llm_model, genai.GenerativeModel
                             )
                             # 移除 @ 提及部分，只保留問題
-                            clean_question = text
-                            if hasattr(event.message, 'mention') and event.message.mention:
-                                # 如果有 mention 資訊，移除被提及的部分
-                                mention = event.message.mention
-                                for mentioned_user in mention.mentionees:
-                                    if mentioned_user.user_id:
-                                        # 簡單的文字清理，移除可能的 @ 符號
-                                        clean_question = text.replace('@', '').strip()
+                            clean_question = extract_clean_question(text, event, bot_line_id)
+                            logging.info(f"Cleaned AI question: '{clean_question}'")
                             
                             response = await asyncio.to_thread(
                                 gemini_service.generate_content,

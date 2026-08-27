@@ -44,6 +44,7 @@ from asr import ASRHandler
 import drive_export
 from services.firebase import FirebaseService
 from services.gemini import GeminiService
+from services.box_storage import BoxStorageService
 
 logging.basicConfig(
     level=os.getenv('LOG', 'INFO'),
@@ -199,6 +200,43 @@ else:
     logging.warning(f"GOOGLE_APPLICATION_CREDENTIALS: {gcs_credentials_path}")
     storage_client = None
     bucket = None
+
+# Initialize Box Storage Service (Primary: box.david888.com, Fallback: box.glsoft.ai, box.aiurl.tw)
+box_storage_service = BoxStorageService()
+
+
+async def upload_asset_to_storage(image_data, filename, mime_type="image/png", title=None, description=None):
+    """
+    上傳圖片、影片、音訊或各類檔案至儲存空間並返回公開 CDN URL。
+    優先使用 888box (box.david888.com / box.glsoft.ai / box.aiurl.tw)，
+    若未設定或上傳失敗則自動容錯使用 Google Cloud Storage。
+    """
+    logging.info(f"Uploading asset '{filename}' (MIME: {mime_type}) to storage...")
+    
+    # 1. 優先嘗試 888box Asset Management
+    try:
+        box_res = await asyncio.to_thread(
+            box_storage_service.upload_file,
+            image_data,
+            filename,
+            title=title or filename,
+            description=description,
+            mime_type=mime_type
+        )
+        if box_res and box_res.get("url"):
+            cdn_url = box_res["url"]
+            logging.info(f"Asset uploaded successfully to Box Storage CDN: {cdn_url}")
+            return cdn_url
+    except Exception as e:
+        logging.warning(f"Failed to upload to Box Storage, trying GCS fallback: {e}")
+
+    # 2. 備用：Google Cloud Storage
+    if bucket:
+        logging.info("Falling back to Google Cloud Storage upload...")
+        return await upload_image_to_gcs(image_data, filename, mime_type)
+
+    logging.error("All storage options failed (Box Storage and GCS)")
+    return None
 
 
 async def upload_image_to_gcs(image_data, filename, mime_type="image/png"):
@@ -366,9 +404,9 @@ async def generate_image_with_gemini(prompt, max_retries=1, retry_delay=15):
                         filename = f"gemini_image_{safe_prompt}{file_extension}"
                         logging.info(f"Generated filename: {filename}")
                         
-                        # 上傳到 Google Cloud Storage
-                        logging.info("Starting upload to GCS...")
-                        image_url = await upload_image_to_gcs(image_data, filename, inline_data.mime_type)
+                        # 上傳到儲存空間 (優先 888box CDN，容錯 GCS)
+                        logging.info("Starting upload to storage...")
+                        image_url = await upload_asset_to_storage(image_data, filename, inline_data.mime_type, title=prompt)
                         logging.info(f"Upload result: {image_url}")
                         
                         # 一旦找到圖片就跳出迴圈

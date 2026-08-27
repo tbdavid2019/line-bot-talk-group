@@ -1,0 +1,41 @@
+# AGENTS Directives & Engineering Guidelines
+
+This file serves as the mandatory ruleset and operational protocol for all AI agents working in this repository (`line-bot-talk-group`).
+
+---
+
+## 🚨 1. Mandatory Documentation Synchronization (變更即時紀錄鐵律)
+**Whenever any feature, bug fix, configuration, or API integration is made, you MUST proactively update documentation without needing user reminders:**
+
+1. **`CHANGELOG.md`**:
+   - Record the changes under the current date section (`## YYYY-MM-DD`).
+   - Group entries into `Added`, `Changed`, `Fixed`, or `Removed`.
+   - Explicitly detail what was resolved or implemented.
+
+2. **`README.md`**:
+   - Keep commands, table of environment variables, architecture diagrams, and usage examples 100% up-to-date with reality.
+
+3. **`test/` Suite**:
+   - Always add or update offline unit tests to cover new features and prevent regressions.
+
+---
+
+## 📦 2. 888box Asset Storage System Reference
+When generating or downloading images, videos, audio, or files, integrate with the multi-tier 888box Storage API:
+
+- **Primary Endpoint**: `https://box.david888.com/api.php`
+- **Fallback 1**: `https://box.glsoft.ai/api.php`
+- **Fallback 2**: `https://box.aiurl.tw/api.php`
+- **API Spec**: `https://box.david888.com/skill.php`
+- **Failover Logic**: Handled automatically in `services/box_storage.py` via `BoxStorageService`.
+
+---
+
+## 🚢 3. Deployment & Watchtower Infrastructure
+- **Production Server**: `10.9.0.9` (`/home/david/linebot-gemini-summarize`)
+- **Containers**:
+  - `LINE-377mwhqu` (Port 8080)
+  - `LINE-113huwec` (Port 8081)
+- **Watchtower Auto-updater**:
+  - Must run with `WATCHTOWER_SCOPE=linebot` and target `LINE-377mwhqu LINE-113huwec`.
+  - Target containers must carry label `com.centurylinklabs.watchtower.scope-label=linebot` to prevent scope collision with other services (e.g. `watchtower-url2md`).

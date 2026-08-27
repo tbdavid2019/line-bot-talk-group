@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-08-27
+
+### Added
+- **888box Asset Storage Service (`services/box_storage.py`)**:
+  - Implemented `BoxStorageService` supporting high-speed asset uploads and CDN delivery.
+  - Multi-tier automatic failover across Primary (`https://box.david888.com`), Fallback 1 (`https://box.glsoft.ai`), and Fallback 2 (`https://box.aiurl.tw`).
+  - Added unit test suite `test/test_box_storage.py` verifying failover and asset upload workflows.
+  - Integrated `upload_asset_to_storage` into `main.py` for generated images, media downloads, and file exports.
+- **Docker Compose & Scoped Watchtower Setup (`docker-compose.yml`)**:
+  - Configured multi-container orchestration for `LINE-377mwhqu` (Port 8080) and `LINE-113huwec` (Port 8081).
+  - Added HTTP healthchecks (`curl -f http://localhost:8080/`).
+  - Added dedicated `watchtower-linebot` auto-updater locked specifically to LINE Bot containers with `WATCHTOWER_SCOPE=linebot`.
+- **Engineering Guidelines (`AGENTS.md`)**:
+  - Established permanent protocol requiring automated synchronization of `CHANGELOG.md`, `README.md`, and unit tests on every change.
+
+### Fixed
+- **Group `@` Mention False Trigger Resolution**:
+  - Fixed issue where the bot falsely chimed in when users `@` mentioned other members (e.g. `@Alice`, `@Bob`) or `@All` in group chats when keywords like `bot` or `機器人` appeared in text.
+  - Added native LINE `is_self: bool` check on all `mentionees` to verify if the bot itself was targeted.
+  - Added strict regex boundary matching for manual `@<bot_id>` and `@Bot` calls.
+  - Added `extract_clean_question()` to preserve intra-sentence `@` symbols in questions (e.g. `@decorator`).
+  - Added 23 unit test cases in `test/test_mention_detection.py` covering all mention scenarios.
+
 ## 2026-07-23
 
 ### Added

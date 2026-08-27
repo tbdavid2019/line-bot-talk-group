@@ -9,6 +9,18 @@ Line @377mwhqu
 
 ## 🆕 版本更新
 
+### v3.4 (2026-08-27)
+- ✅ **888box Asset Storage 多節點整合**：
+  - 支援將 AI 生成圖片、音訊、影片及匯出檔案自動存入 888box CDN
+  - 自動多層級故障轉移：Primary (`box.david888.com`) ➔ Fallback 1 (`box.glsoft.ai`) ➔ Fallback 2 (`box.aiurl.tw`) ➔ GCS 備援
+- ✅ **精確 @ Mention 檢測升級**：
+  - 支援 LINE 原生 `is_self` 判定，徹底解決群組中提及 `@其他成員` 或 `@All` 時 Bot 誤插話的嚴重問題
+  - 手打提及支援正則前後邊界匹配，安全過濾 `@..` 及一般內文符號
+  - 新增 `extract_clean_question` 完整保留問題內部的 `@` 符號（如 `@decorator`）
+- ✅ **Docker Compose & Watchtower 自動更新架構**：
+  - 提供完整 `docker-compose.yml` 支援 `LINE-377mwhqu` 與 `LINE-113huwec`
+  - 配置專屬 Scope 隔離的 `watchtower-linebot`，實現零停機安全自動化更新
+
 ### v3.3 (2026-01-05)
 - ✅ **Flex Message 視覺升級**：所有 Bot 回應現在使用美觀的卡片樣式
 - ✅ **語音轉文字 (ASR) 支援**：支援接收語音訊息並自動轉錄
@@ -245,6 +257,13 @@ Bot: ------對話歷史紀錄已經清空------
   - 預設值: `gemini-2.5-flash`
   - 其他選項: `gemini-1.5-flash`, `gemini-1.5-pro` 等
 
+#### 888box Asset Storage 相關環境變數（v3.4+）
+
+- `BOX_STORAGE_ENDPOINTS`: 自訂 Box Storage API 端點列表（逗號分隔，可選）
+  - 預設包含主要與備援節點：`https://box.david888.com,https://box.glsoft.ai,https://box.aiurl.tw`
+  - 具備自動 Failover 機制，提供極速 CDN 圖片/檔案回傳網址
+- `BOX_STORAGE_TOKEN`: 888box API 存取 Token（可選，如啟用登入權限控管時使用）
+
 #### 圖片生成相關環境變數（v3.2+）
 
 - `GEMINI_IMAGE_API_KEY`: 圖片生成專用的 Gemini API 金鑰（可選）
@@ -253,8 +272,8 @@ Bot: ------對話歷史紀錄已經清空------
   - 預設值: `gemini-3-pro-image-preview`
   - 其他選項: `gemini-2.5-flash-image-preview`
   - **注意**：此環境變數會影響圖片生成的模型選擇
-- `GCS_BUCKET_NAME`: Google Cloud Storage bucket 名稱（圖片生成必須）
-- `GOOGLE_APPLICATION_CREDENTIALS`: GCS 認證檔案路徑（圖片生成必須）
+- `GCS_BUCKET_NAME`: Google Cloud Storage bucket 名稱（選填備援）
+- `GOOGLE_APPLICATION_CREDENTIALS`: GCS 認證檔案路徑（選填備援）
 
 #### Google Drive 轉存相關環境變數（群組檔案轉存）
 

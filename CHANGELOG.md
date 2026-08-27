@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## 2026-08-27
 
 ### Added
+- **David888 Wiki Publisher Service (`services/wiki_publisher.py`)**:
+  - Implemented `WikiPublisherService` integrating REST publishing with `https://wiki.david888.com/api`.
+  - Added support for auto-generating structured Markdown articles with `[TOC]`, interactive themes (`claude-canvas`), and returning public `shareUrl`.
+  - Added commands `!wiki summary` (AI summary to Wiki) and `!wiki <title> <content>` (direct note publishing).
+  - Added unit test suite `test/test_wiki_publisher.py`.
 - **888box Asset Storage Service (`services/box_storage.py`)**:
   - Implemented `BoxStorageService` supporting high-speed asset uploads and CDN delivery.
   - Multi-tier automatic failover across Primary (`https://box.david888.com`), Fallback 1 (`https://box.glsoft.ai`), and Fallback 2 (`https://box.aiurl.tw`).

@@ -39,3 +39,16 @@ When generating or downloading images, videos, audio, or files, integrate with t
 - **Watchtower Auto-updater**:
   - Must run with `WATCHTOWER_SCOPE=linebot` and target `LINE-377mwhqu LINE-113huwec`.
   - Target containers must carry label `com.centurylinklabs.watchtower.scope-label=linebot` to prevent scope collision with other services (e.g. `watchtower-url2md`).
+
+---
+
+## 📖 4. David888 Wiki Publishing Integration
+When publishing knowledge notes, articles, or conversation summaries to David888 Wiki:
+
+- **API Base URL**: `https://wiki.david888.com/api`
+- **Skill Spec**: `https://wiki.david888.com/.well-known/agent-skills/david888-wiki-publisher/SKILL.md`
+- **Publish Endpoint**: `POST https://wiki.david888.com/api/<path>`
+- **CRITICAL RULE**: Always extract and provide the **`shareUrl`** (e.g. `https://wiki.david888.com/share/<id>`) to the user. Never return the internal edit `url`.
+- **Formatting Standards**: Include `[TOC]`, clear H2/H3 headers, and default theme `claude-canvas` or `retro`.
+- **Service Implementation**: Handled in `services/wiki_publisher.py` via `WikiPublisherService`.
+

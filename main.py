@@ -45,6 +45,7 @@ import drive_export
 from services.firebase import FirebaseService
 from services.gemini import GeminiService
 from services.box_storage import BoxStorageService
+from services.wiki_publisher import WikiPublisherService
 
 logging.basicConfig(
     level=os.getenv('LOG', 'INFO'),
@@ -203,6 +204,9 @@ else:
 
 # Initialize Box Storage Service (Primary: box.david888.com, Fallback: box.glsoft.ai, box.aiurl.tw)
 box_storage_service = BoxStorageService()
+
+# Initialize David888 Wiki Publisher Service (Base URL: https://wiki.david888.com/api)
+wiki_publisher_service = WikiPublisherService()
 
 
 async def upload_asset_to_storage(image_data, filename, mime_type="image/png", title=None, description=None):
@@ -912,7 +916,8 @@ async def handle_callback(request: Request):
             should_reply = False
             is_ai_question = False  # 是否為 AI 問答模式
             is_drive_command = False
-            special_commands = ['!清空', '!clean',  '!摘要','!總結','!summary', '！清空', '！摘要', '!help', '!幫助', '！help', '！幫助', '!畫圖', '!生成圖片', '！畫圖', '！生成圖片', '!image', '!draw', '!drive', '！drive']
+            is_wiki_command = False
+            special_commands = ['!清空', '!clean',  '!摘要','!總結','!summary', '！清空', '！摘要', '!help', '!幫助', '！help', '！幫助', '!畫圖', '!生成圖片', '！畫圖', '！生成圖片', '!image', '!draw', '!drive', '！drive', '!wiki', '！wiki']
             
             if event.source.type == 'group':
                 # 檢查是否真的提及了 Bot
@@ -1167,6 +1172,94 @@ async def handle_callback(request: Request):
                             reply_msg = '目前沒有足夠的對話紀錄可以摘要'
                             messages.append({'role': 'model', 'parts': [reply_msg], 'timestamp': str(event.timestamp)})
                     
+                    elif text.lower().startswith('!wiki') or text.lower().startswith('！wiki'):
+                        is_wiki_command = True
+                        cleaned_cmd = text[5:].strip() if text.lower().startswith('!wiki') else text[5:].strip()
+                        tokens = cleaned_cmd.split(maxsplit=1)
+                        subcmd = tokens[0].lower() if tokens else ""
+
+                        if not tokens or subcmd in ['help', '幫助', '說明', 'h', '?']:
+                            reply_msg = """📖 David888 Wiki 發布指令說明
+
+• `!wiki summary` 或 `!wiki 摘要`：將群組目前對話進行 AI 結構化總結，並直接發布為 David888 Wiki 網頁筆記（附公開閱讀網址與目錄）。
+• `!wiki <標題> <Markdown內容>`：直接發布一篇 Markdown 文章到 David888 Wiki。
+  例：`!wiki 今日會議記錄 # 會議決策\n1. 啟用新架構\n2. 部署 Watchtower`
+
+🔗 Wiki 官網：https://wiki.david888.com"""
+
+                        elif subcmd in ['summary', '摘要', '總結']:
+                            if len(messages) > 1:
+                                try:
+                                    gemini_service = GeminiService(
+                                        gemini_llm_model, genai.GenerativeModel
+                                    )
+                                    gemini_messages = [{'role': m['role'], 'parts': m['parts']} for m in messages if m.get('role') in ('user', 'model')]
+                                    
+                                    prompt_summary = f"""請將以下群組對話記錄整理成一份專業、結構清晰的 Markdown 知識庫筆記，請使用繁體中文。
+格式要求：
+1. 第一行必須是 H1 主標題：# 📑 群組對話精華摘要 ({datetime.now().strftime('%Y-%m-%d %H:%M')})
+2. 請加入 [TOC]
+3. 包含以下章節：
+   - ## 🎯 核心主題與討論重點
+   - ## 💡 關鍵決策與重要結論
+   - ## 📌 待辦事項與行動清單 (Action Items)
+   - ## 💬 重點討論脈絡記錄
+對話記錄如下：
+{gemini_messages}"""
+                                    response = await asyncio.to_thread(
+                                        gemini_service.generate_content,
+                                        prompt_summary
+                                    )
+                                    summary_content = response.text
+                                    
+                                    # 發布到 David888 Wiki
+                                    note_title = f"summary-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+                                    wiki_res = await asyncio.to_thread(
+                                        wiki_publisher_service.publish_note,
+                                        text=summary_content,
+                                        title=note_title,
+                                        theme="claude-canvas",
+                                        public=True
+                                    )
+                                    
+                                    if wiki_res and wiki_res.get("shareUrl"):
+                                        share_url = wiki_res["shareUrl"]
+                                        reply_msg = f"📑 群組對話精華摘要已發布至 David888 Wiki！\n\n🔗 線上公開閱讀：\n{share_url}\n\n" + summary_content[:300] + ("..." if len(summary_content) > 300 else "")
+                                    else:
+                                        reply_msg = f"📑 對話摘要：\n\n{summary_content}"
+                                except Exception as e:
+                                    logging.error(f"Error generating wiki summary: {e}")
+                                    reply_msg = "抱歉，產生或發布 Wiki 摘要時發生錯誤，請稍後再試。"
+                            else:
+                                reply_msg = "目前沒有足夠的對話紀錄可以產生 Wiki 摘要"
+
+                        else:
+                            # 格式：!wiki <標題> <內容>
+                            # tokens: [標題, 內容]
+                            if len(tokens) >= 2:
+                                note_title = tokens[0]
+                                note_content = tokens[1]
+                            else:
+                                note_title = f"note-{int(time.time())}"
+                                note_content = tokens[0]
+
+                            try:
+                                wiki_res = await asyncio.to_thread(
+                                    wiki_publisher_service.publish_note,
+                                    text=note_content,
+                                    title=note_title,
+                                    theme="claude-canvas",
+                                    public=True
+                                )
+                                if wiki_res and wiki_res.get("shareUrl"):
+                                    share_url = wiki_res["shareUrl"]
+                                    reply_msg = f"✅ 文章已成功發布至 David888 Wiki！\n\n🔗 公開閱讀連結：\n{share_url}"
+                                else:
+                                    reply_msg = "❌ 發布至 David888 Wiki 失敗，請稍後再試。"
+                            except Exception as e:
+                                logging.error(f"Error publishing to wiki: {e}")
+                                reply_msg = f"❌ 發布失敗：{e}"
+
                     elif text.lower() in ['!help', '!幫助', '！help', '！幫助']:
                         reply_msg = """🤖 群組摘要王 使用說明
 
@@ -1175,6 +1268,8 @@ async def handle_callback(request: Request):
   例：@Bot 什麼是梯度下降？
 
 • !摘要 或 ！摘要：產生對話摘要
+• !wiki summary：將對話整理為結構化筆記並發布至 David888 Wiki (含公開分享連結)
+• !wiki <標題> <內容>：直接發布 Markdown 筆記至 David888 Wiki
 • !清空 或 ！清空：清空對話記錄
 • !drive bind：啟用此群組 Google Drive 轉存（owner 制）
   其他：!drive status / !drive off
@@ -1191,7 +1286,7 @@ async def handle_callback(request: Request):
 • 群組中只有 @ 提及或特殊指令才會回應
 • AI 問答為一次性回答，不會記錄到對話歷史
 • 所有訊息都會被記錄以供摘要功能使用
-• 圖片生成需要 Google Cloud Storage 設定"""
+• 圖片與檔案會自動存入 888box CDN 高速儲存"""
                         # 幫助訊息不記錄到對話歷史
                         
                     elif any(cmd in text.lower() for cmd in ['!畫圖', '！畫圖', '!生成圖片', '！生成圖片', '!image', '!draw']):
@@ -1299,7 +1394,8 @@ async def handle_callback(request: Request):
                 should_save_to_firebase = not is_ai_question and not (
                     text.lower() in ['!help', '!幫助', '！help', '！幫助'] or
                     any(cmd in text.lower() for cmd in ['!畫圖', '！畫圖', '!生成圖片', '！生成圖片', '!image', '!draw']) or
-                    is_drive_command
+                    is_drive_command or
+                    is_wiki_command
                 )
                 
                 if should_save_to_firebase:

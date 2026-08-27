@@ -10,6 +10,9 @@ Line @377mwhqu
 ## 🆕 版本更新
 
 ### v3.4 (2026-08-27)
+- ✅ **David888 Wiki 知識庫發布整合**：
+  - 支援 `!wiki summary`：一鍵將群組討論生成結構化 Markdown 知識筆記（含 `[TOC]` 目錄、行動清單與 `claude-canvas` 主題）並自動發布至 `wiki.david888.com`，提供公開唯讀分享網址 (`shareUrl`)。
+  - 支援 `!wiki <標題> <內容>`：直接發布 Markdown 筆記至 David888 Wiki。
 - ✅ **888box Asset Storage 多節點整合**：
   - 支援將 AI 生成圖片、音訊、影片及匯出檔案自動存入 888box CDN
   - 自動多層級故障轉移：Primary (`box.david888.com`) ➔ Fallback 1 (`box.glsoft.ai`) ➔ Fallback 2 (`box.aiurl.tw`) ➔ GCS 備援

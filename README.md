@@ -70,6 +70,7 @@ Line @377mwhqu
 
 - [功能](#功能)
 - [🆕 最新功能](#-最新功能)
+- [🌟 核心亮點：意圖解構與自主執行力](#-核心亮點意圖解構與自主執行力-agentic-tool-calling)
 - [🧠 對話記憶與 Session 機制](#-對話記憶與-session-機制)
 - [指令列表](#指令列表)
 - [流程圖](#流程圖)
@@ -163,6 +164,54 @@ Bot 現在支援接收語音訊息，並自動轉換為文字進行處理：
 - ✅ 智慧 Fallback 機制：優先使用預設服務，失敗後自動切換
 - ✅ 語音轉錄後可觸發所有功能（AI 對話、畫圖指令等）
 - ✅ 在群組與私人對話中都可使用
+
+## 🌟 核心亮點：意圖解構與自主執行力 (Agentic Tool Calling)
+
+> **🚀 告別「只能乾瞪眼回文字」的傳統對話機器人**  
+> 過去的瓶頸在於：LLM 雖然能理解語義，但若沒有賦予系統級 API 執行權限（Tool Calling），它只能依據過期的靜態權重推託「我沒有即時資料」。  
+> 本專案實裝了完整模組化的 **Actuators（執行器工具箱）** 與 **多輪自主 Agent Loop**，由 LLM 大腦自主解構使用者意圖，主動調用工具獲取真實世界資訊並反饋執行！
+
+### 🤖 運作架構與 Agentic Loop
+
+```
+                    ┌────────────────────────┐
+                    │      使用者傳送訊息      │
+                    └───────────┬────────────┘
+                                │
+                                ▼
+               ┌─────────────────────────────────┐
+               │    LLM 大腦 (gpt-5.6-luna)       │
+               │   意圖解構與決策 (Tool Calling)   │
+               └──────────────┬──────────────────┘
+                              │
+          ┌───────────────────┴───────────────────┐
+          ▼ (需實時資料/外部動作)                   ▼ (純知識分析/邏輯推論)
+  【調用 Actuators 執行器】                   【直接生成回答】
+   • search_web(query)                            │
+   • read_web_page(url)                           │
+   • get_live_weather(loc)                        │
+          │                                       │
+          ▼ (背景執行 API 獲取資料)                  │
+  【將 Tool Output 回傳給 LLM】                     │
+          │                                       │
+          ▼ (多輪自主循環最多 5 輪)                   │
+   LLM 消化即時事實 ➔ 生成精確最終回覆 ◀────────────┘
+          │
+          ▼
+  【自主發布執行器 (WikiPublisher)】 (若是長篇專題/架構指南)
+   LLM 自主發布至 David888 Wiki ➔ 回傳 shareUrl 至 LINE
+```
+
+### 🧰 執行器工具箱 (Actuators Toolbox)
+
+| 執行器名稱 | 對應模組 | 核心能力與應用場景 |
+|---|---|---|
+| 🌐 **`search_web`** | `services/web_search.py` | **2MD SERP 多節點即時搜尋**：自動檢測實時股價、最新新聞、財報、走勢與突發事件，取得最新客觀事實。 |
+| 📖 **`read_web_page`** | `services/web_search.py` | **2MD Fast Reader 網頁萃取**：當提及 URL 或需深度爬取文章時，自動解析網頁並萃取結構化 Markdown。 |
+| 🌦️ **`get_live_weather`** | `services/web_search.py` | **即時氣象與微氣候觀測**：查詢城市與離島（如蘭嶼、綠島）即時氣溫、體感溫度、濕度、風速、紫外線與預報。 |
+| 📑 **`publish_note`** | `services/wiki_publisher.py` | **David888 Wiki 自主長篇畫布**：LLM 自主編寫 Markdown（含目錄 `[TOC]`、表格與 Mermaid 圖）發布為線上網頁並回傳 `shareUrl`。 |
+| 🎨 **`upload_asset`** | `services/box_storage.py` | **888box 多節點 CDN 儲存**：生成圖片與多媒體檔案自動推播至多節點 CDN（`box.david888.com` / `box.glsoft.ai`）。 |
+| 🎙️ **`transcribe`** | `asr.py` | **多路 Whisper/Gemini 語音轉錄**：接收 LINE 語音訊息並自動高精準度轉譯為繁體中文文字。 |
 
 ## 🧠 對話記憶與 Session 機制
 

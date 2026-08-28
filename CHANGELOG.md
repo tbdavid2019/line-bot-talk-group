@@ -4,7 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## 2026-08-28
 
-### Added
+- **Agentic Tool Calling & Autonomous Actuators Documentation (`README.md`)**:
+  - Documented the modular Actuators toolbox (`search_web`, `read_web_page`, `get_live_weather`, `publish_note`, `upload_asset`, `transcribe`) and autonomous multi-turn Agent loop empowering LLMs with intent decomposition and execution capabilities.
 - **Session & Memory Architecture Documentation (`README.md`)**:
   - Documented the context-aware hybrid session & memory architecture:
     - Multi-turn stateful session for 1:1 private chats (`users/{user_id}/message_events`).

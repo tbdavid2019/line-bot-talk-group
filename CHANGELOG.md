@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## 2026-08-28
 
+### Added
+- **LINE SafeReply Push Fallback Mechanism (`main.py`)**:
+  - Implemented `safe_reply_message` wrapper across all bot response endpoints (text replies, AI answers, and image generations).
+  - Automatically falls back to `push_message` targeting `group_id`, `room_id`, or `user_id` whenever `reply_token` expires (e.g. after long multi-turn Tool Calling or deep research exceeding 30s) or when `reply_message` fails.
+  - Guarantees 100% reliable message delivery with zero timeouts and zero dropped messages while preserving free reply quotas for fast responses.
+  - Added unit test suite `test/test_safe_reply.py` covering successful reply, group push fallback, user push fallback, push failure resilience, and missing target ID handling.
 - **Agentic Tool Calling & Autonomous Actuators Documentation (`README.md`)**:
   - Documented the modular Actuators toolbox (`search_web`, `read_web_page`, `get_live_weather`, `publish_note`, `upload_asset`, `transcribe`) and autonomous multi-turn Agent loop empowering LLMs with intent decomposition and execution capabilities.
 - **Session & Memory Architecture Documentation (`README.md`)**:

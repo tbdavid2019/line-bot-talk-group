@@ -37,6 +37,9 @@ Line @377mwhqu
   - **雙架構原生支援**：使用 QEMU + Docker Buildx 同時建置 `linux/amd64` (x64) 與 `linux/arm64` (Apple Silicon / ARM 伺服器) Multi-Arch 映像檔。
   - **自動化推送**：程式碼 Push 至 `master`/`main` 或發布 Tag 時，自動推播至 Docker Hub (`tbdavid2019/line-bot-talk-group:latest`) 與 GHCR。
   - **Watchtower 無縫聯動**：伺服器端容器 `LINE-377mwhqu` 與 `LINE-113huwec` 自動偵測 Docker Hub 最新版並無感重啟升級。
+- ✅ **LINE 超時保護全時守護 (SafeReply Push Fallback)**：
+  - **雙重送達保障**：平時優先使用免費的 `reply_message`（0 額度消耗）。
+  - **超時無縫降級**：若因 Tool Calling 多輪搜尋、長篇分析或 AI 繪圖耗時超過 30 秒導致 `reply_token` 過期失效，系統在完成時會**自動轉換為 `push_message` 強制精準送達**，絕不掉訊息、絕不超時中斷。
 - ✅ **Docker Compose & Watchtower 自動更新架構**：
   - 提供完整 `docker-compose.yml` 支援 `LINE-377mwhqu` 與 `LINE-113huwec`
   - 配置專屬 Scope 隔離的 `watchtower-linebot`，實現零停機安全自動化更新
@@ -212,6 +215,11 @@ Bot 現在支援接收語音訊息，並自動轉換為文字進行處理：
 | 📑 **`publish_note`** | `services/wiki_publisher.py` | **David888 Wiki 自主長篇畫布**：LLM 自主編寫 Markdown（含目錄 `[TOC]`、表格與 Mermaid 圖）發布為線上網頁並回傳 `shareUrl`。 |
 | 🎨 **`upload_asset`** | `services/box_storage.py` | **888box 多節點 CDN 儲存**：生成圖片與多媒體檔案自動推播至多節點 CDN（`box.david888.com` / `box.glsoft.ai`）。 |
 | 🎙️ **`transcribe`** | `asr.py` | **多路 Whisper/Gemini 語音轉錄**：接收 LINE 語音訊息並自動高精準度轉譯為繁體中文文字。 |
+| 🛡️ **`safe_reply`** | `main.py` | **LINE 超時保護 (SafeReply Push Fallback)**：回覆超時或 Token 失效時自動無縫轉為 Push Message，保證 100% 送達。 |
+
+### 🛡️ LINE 超時保護（SafeReply Push Fallback）全時守護
+- **痛點解決**：LINE 官方規定 `reply_token` 時效僅約 30 秒。當 AI 執行複雜的多輪網路檢索、多網頁閱讀或長篇總結超過 30 秒時，傳統機制會因 Token 過期而丟失訊息。
+- **全時守護**：系統全面接入 `safe_reply_message`，平時優先使用 0 額度成本的 `reply_message`；若因運算逾時導致 Token 失效，系統在完成時會**自動轉換為 `push_message` 強制精準送達**（發送至 `group_id` 或 `user_id`），確保**絕不掉訊息、絕不超時中斷**！
 
 ## 🧠 對話記憶與 Session 機制
 

@@ -455,6 +455,52 @@ def extract_clean_question(text: str, event=None, bot_id: str = None) -> str:
     return clean_text.strip()
 
 
+async def safe_reply_message(
+    line_bot_api: AsyncMessagingApi,
+    event: MessageEvent,
+    messages: list
+) -> bool:
+    """
+    全時守護 SafeReply：
+    1. 優先使用免費的 reply_message（不消耗 LINE 官方推播額度）。
+    2. 若因 Tool Calling 多輪搜尋、長篇運算或網路延遲導致 reply_token 過期/失效，自動切換至 push_message 強制精準送達。
+    """
+    try:
+        await line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=messages
+            )
+        )
+        logging.info("Message delivered successfully via reply_message")
+        return True
+    except Exception as reply_err:
+        logging.warning(
+            f"reply_message failed (likely token expired/invalid: {reply_err}), activating SafeReply Push Fallback..."
+        )
+        target_id = (
+            getattr(event.source, 'group_id', None) or
+            getattr(event.source, 'room_id', None) or
+            getattr(event.source, 'user_id', None)
+        )
+        if target_id:
+            try:
+                await line_bot_api.push_message(
+                    PushMessageRequest(
+                        to=target_id,
+                        messages=messages
+                    )
+                )
+                logging.info(f"✅ SafeReply Push Fallback delivered successfully to {target_id}")
+                return True
+            except Exception as push_err:
+                logging.error(f"❌ SafeReply Push Fallback also failed for target {target_id}: {push_err}")
+                return False
+        else:
+            logging.error(f"❌ Cannot activate Push Fallback: no target ID found in event.source ({event.source})")
+            return False
+
+
 @app.get("/health")
 async def health():
     return 'ok'
@@ -1256,21 +1302,18 @@ async def handle_callback(request: Request):
                                 logging.info(f"Image generation result - success: {success}, result: {result}")
                                 
                                 if success:
-                                    logging.info("Image generation successful, sending reply with image")
-                                    # 使用 reply_message 一次發送文字和圖片（避免 push_message 額度問題）
+                                    # 使用 SafeReply 一次發送文字和圖片（自動 Push Fallback 守護）
                                     image_message = ImageMessage(
                                         original_content_url=result,
                                         preview_image_url=result
                                     )
                                     success_text = TextMessage(text=f"🎨 圖片生成完成：{prompt}")
                                     
-                                    await line_bot_api.reply_message(
-                                        ReplyMessageRequest(
-                                            reply_token=event.reply_token,
-                                            messages=[success_text, image_message]
-                                        )
+                                    await safe_reply_message(
+                                        line_bot_api,
+                                        event,
+                                        messages=[success_text, image_message]
                                     )
-                                    logging.info("Image and text sent successfully via reply_message")
                                     reply_msg = ""  # 已經回覆了
                                 else:
                                     logging.error(f"Image generation failed: {result}")
@@ -1362,13 +1405,13 @@ async def handle_callback(request: Request):
                 else:
                     logging.info(f"Skipped saving to Firebase (special command): {text[:50]}...")
 
-                # 發送回應（只有在需要回應且有訊息內容時）
+                # 發送回應（只有在需要回應且有訊息內容時，使用 SafeReply 守護）
                 if should_reply and reply_msg:
-                    await line_bot_api.reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[TextMessage(text=reply_msg)]
-                        ))
+                    await safe_reply_message(
+                        line_bot_api,
+                        event,
+                        messages=[TextMessage(text=reply_msg)]
+                    )
     
     finally:
         # 關閉 async client

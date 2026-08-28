@@ -9,6 +9,7 @@ import requests
 from typing import Any, List, Dict, Optional
 
 from services.web_search import WebSearchService
+from services.wiki_publisher import WikiPublisherService
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +55,33 @@ AVAILABLE_TOOLS = [
                 'required': ['location']
             }
         }
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'publish_wiki_note',
+            'description': 'Publish a structured markdown article, analysis, tutorial, report, slide deck, or book manifest to David888 Wiki (wiki.david888.com) and get the public shareUrl to return to the user. MANDATORY RULE: The markdown content MUST start with a Level-1 # Title on the very first line, followed by executive summary blockquote > ... and [TOC].',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'title': {'type': 'string', 'description': 'The title of the note (used for URL slug and H1)'},
+                    'content': {'type': 'string', 'description': 'The complete, high-quality Markdown content starting with # Title'},
+                    'theme': {'type': 'string', 'description': 'Theme name (default: claude-canvas; options: retro, newsprint, terminal, notion-clean, bauhaus, etc.)'}
+                },
+                'required': ['title', 'content']
+            }
+        }
     }
 ]
 
 SYSTEM_GROUNDING_PROMPT = (
-    "你是一個全知、專業、親切且具備 2MD 高速即時網路搜尋、網頁閱讀與即時氣象觀測能力的 AI 智慧助理。\n"
+    "你是一個全知、專業、親切且具備 2MD 高速即時網路搜尋、網頁閱讀、即時氣象觀測與 David888 Wiki 發布能力的 AI 智慧助理。\n"
     "【重要守則】:\n"
     "1. 必須一律使用「繁體中文（台灣習慣用語）」回答，嚴禁使用簡體中文或擅自使用英文，除非使用者明確要求英文。\n"
     "2. 當使用者詢問最新科技產品、手機行情/價格/規格、股票即時報價、即時新聞、匯率或任何真實世界事實時，請務必主動調用 search_web 等工具獲取最新真實資料。\n"
-    "3. 嚴禁推托「我沒有即時資料」或「我是 AI 無法獲取行情」。請根據搜尋結果直接給出清晰、明確且具體的價格、規格或客觀事實分析。"
+    "3. 嚴禁推托「我沒有即時資料」或「我是 AI 無法獲取行情」。請根據搜尋結果直接給出清晰、明確且具體的價格、規格或客觀事實分析。\n"
+    "4. 當使用者要求撰寫長篇分析、專題研究、教學手冊、2D簡報或要求發布至 Wiki (David888 Wiki) 時，請主動調用 publish_wiki_note 工具發布，並將回傳的 shareUrl 提供給使用者。\n"
+    "   - 發布規範：Markdown 內容第一行必須強制為 Level-1 `# 文件標題`（無任何對話寒暄廢話），緊接著 `> 執行摘要` 與 `[TOC]` 目錄，並使用豐富的章節、表格、Mermaid 圖表或註腳。"
 )
 
 
@@ -134,6 +153,7 @@ class LLMService:
         self.timeout = timeout
         self.enable_web_search = enable_web_search
         self.web_search_service = WebSearchService()
+        self.wiki_publisher_service = WikiPublisherService()
 
     def _convert_to_openai_messages(self, contents: Any) -> List[Dict[str, Any]]:
         """Converts string, list of strings, or Gemini-style messages into OpenAI chat format."""
@@ -167,7 +187,7 @@ class LLMService:
         return [{"role": "user", "content": str(contents)}]
 
     def _execute_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
-        """Executes tool via WebSearchService and returns string output."""
+        """Executes tool via WebSearchService or WikiPublisherService and returns string output."""
         try:
             if tool_name == 'search_web':
                 query = args.get('query', '')
@@ -184,6 +204,27 @@ class LLMService:
                     # fallback to search
                     res = self.web_search_service.search(f"{location} 天氣 氣溫")
                 return res[:3000] if res else "暫無該地區即時氣象資料。"
+            elif tool_name == 'publish_wiki_note':
+                title = args.get('title', '')
+                content = args.get('content', '')
+                theme = args.get('theme', 'claude-canvas')
+                res = self.wiki_publisher_service.publish_note(
+                    text=self.wiki_publisher_service.prepare_wiki_markdown(title, content),
+                    title=title,
+                    theme=theme,
+                    public=True,
+                    width="100%"
+                )
+                if res and res.get('shareUrl'):
+                    share_url = res['shareUrl']
+                    extras = []
+                    if res.get('presentUrl'):
+                        extras.append(f"簡報模式: {res['presentUrl']}")
+                    if res.get('bookUrl'):
+                        extras.append(f"電子書模式: {res['bookUrl']}")
+                    extra_str = f" ({', '.join(extras)})" if extras else ""
+                    return f"發布成功！公開分享網址 (shareUrl): {share_url}{extra_str}"
+                return "發布至 David888 Wiki 失敗，請稍後再試。"
             else:
                 return f"未知的工具：{tool_name}"
         except Exception as e:

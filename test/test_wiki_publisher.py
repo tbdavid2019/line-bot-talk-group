@@ -33,6 +33,25 @@ class TestWikiPublisherService(unittest.TestCase):
         self.assertEqual(result["shareUrl"], "https://wiki.david888.com/share/abc1234")
         self.assertEqual(result["path"], "test-slug")
 
+    @patch('requests.post')
+    def test_publish_note_with_present_and_book_urls(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "err": 0,
+            "data": {
+                "url": "https://wiki.david888.com/my-slides",
+                "shareUrl": "https://wiki.david888.com/share/slide123"
+            }
+        }
+        mock_post.return_value = mock_resp
+
+        service = WikiPublisherService()
+        slide_text = "# Slide Title\n\n---\n\n## Slide 2\n\n---\n- [Chapter 1](/share/ch1)"
+        result = service.publish_note(text=slide_text, path="my-slides")
+        self.assertEqual(result["presentUrl"], "https://wiki.david888.com/share/slide123/present")
+        self.assertEqual(result["bookUrl"], "https://wiki.david888.com/share/slide123/book")
+
     @patch('requests.get')
     def test_get_note_markdown(self, mock_get):
         mock_resp = MagicMock()
@@ -59,6 +78,48 @@ class TestWikiPublisherService(unittest.TestCase):
         self.assertIsNotNone(res)
         self.assertIn("html", res)
 
+    @patch('requests.post')
+    def test_parse_html_to_markdown(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "err": 0,
+            "data": {"markdown": "# Converted Title\n\nConverted text"}
+        }
+        mock_post.return_value = mock_resp
+
+        service = WikiPublisherService()
+        res = service.parse_html_to_markdown(html="<h1>Converted Title</h1><p>Converted text</p>")
+        self.assertEqual(res, "# Converted Title\n\nConverted text")
+
+    @patch('requests.post')
+    def test_extract_structure(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "err": 0,
+            "data": {"title": "Test Title", "stats": {"words": 50}}
+        }
+        mock_post.return_value = mock_resp
+
+        service = WikiPublisherService()
+        res = service.extract_structure("# Test Title\nSome content")
+        self.assertEqual(res["title"], "Test Title")
+
+    @patch('requests.post')
+    def test_lint_markdown(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "err": 0,
+            "data": {"valid": True, "issues": []}
+        }
+        mock_post.return_value = mock_resp
+
+        service = WikiPublisherService()
+        res = service.lint_markdown("# Clean Title")
+        self.assertTrue(res["valid"])
+
     def test_should_auto_publish(self):
         service = WikiPublisherService()
         # General question -> False (direct answer in LINE)
@@ -69,11 +130,12 @@ class TestWikiPublisherService(unittest.TestCase):
         self.assertTrue(service.should_auto_publish("請透過 wiki 發布這篇分析", "詳細分析內容..."))
         self.assertTrue(service.should_auto_publish("!wiki summary", "對話摘要內容..."))
 
-    def test_prepare_wiki_markdown(self):
+    def test_prepare_wiki_markdown_removes_preamble(self):
         service = WikiPublisherService()
-        raw_text = "## 第一章\n內容A\n\n## 第二章\n內容B"
-        prepared = service.prepare_wiki_markdown("請分析分散式系統", raw_text)
-        self.assertTrue(prepared.startswith("# 📑"))
+        raw_text = "好的，這是我為您撰寫的分析報告：\n\n# 📚 深度分散式儲存架構白皮書\n\n> 執行摘要：評估 Edge 儲存。\n\n## 1. 簡介\n內容A\n\n## 2. 架構\n內容B"
+        prepared = service.prepare_wiki_markdown("請發布白皮書", raw_text)
+        self.assertTrue(prepared.startswith("# 📚 深度分散式儲存架構白皮書"))
+        self.assertNotIn("好的，這是我為您撰寫的分析報告", prepared)
         self.assertIn("[TOC]", prepared)
 
     @patch('requests.post')
@@ -118,7 +180,7 @@ class TestWikiPublisherService(unittest.TestCase):
 
         # Format & publish
         reply = service.format_and_publish_if_long(prompt, llm_response)
-        
+
         # Verify no raw [CALL: syntax and real shareUrl is returned
         self.assertNotIn("[CALL:", reply)
         self.assertIn("https://wiki.david888.com/share/eng123", reply)

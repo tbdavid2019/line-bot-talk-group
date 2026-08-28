@@ -15,6 +15,13 @@ All notable changes to this project will be documented in this file.
   - Upgraded Google Gemini Fallback to support both `google-genai` v2 Client and legacy `google-generativeai` with automatic real-time web search enrichment.
 
 ### Added
+- **David888 Wiki Publisher Upgrade & Agentic Tool Integration (`services/wiki_publisher.py`, `services/llm.py`)**:
+  - Aligned with the latest canonical [David888 Wiki Publisher SKILL.md](https://wiki.david888.com/.well-known/agent-skills/david888-wiki-publisher/SKILL.md) specification:
+    - Enforced mandatory document structure rule: `# Document Title` (Level-1 heading) strictly on line 1, stripping all conversational preamble/meta-chatter.
+    - Automated `[TOC]` placement immediately after the title/summary blockquote.
+    - Added multi-modal URL detection: automatically derives 2D slide presentation link (`shareUrl + '/present'`) and book manifest link (`shareUrl + '/book'`).
+    - Added stateless markdown processing utilities: `parse_html_to_markdown`, `render_markdown`, `extract_structure`, and `lint_markdown`.
+    - Integrated `publish_wiki_note` into `AVAILABLE_TOOLS` in `LLMService` for autonomous tool-driven wiki publishing.
 - **LINE SafeReply Push Fallback Mechanism (`main.py`)**:
   - Implemented `safe_reply_message` wrapper across all bot response endpoints (text replies, AI answers, and image generations).
   - Automatically falls back to `push_message` targeting `group_id`, `room_id`, or `user_id` whenever `reply_token` expires (e.g. after long multi-turn Tool Calling or deep research exceeding 30s) or when `reply_message` fails.

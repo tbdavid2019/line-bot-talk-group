@@ -48,9 +48,11 @@ When generating or downloading images, videos, audio, or files, integrate with t
 - **API Base URL**: `https://wiki.david888.com/api`
 - **Skill Spec**: `https://wiki.david888.com/.well-known/agent-skills/david888-wiki-publisher/SKILL.md`
 - **Publish Endpoint**: `POST https://wiki.david888.com/api/<path>`
-- **CRITICAL RULE**: Always extract and provide the **`shareUrl`** (e.g. `https://wiki.david888.com/share/<id>`) to the user. Never return the internal edit `url`.
-- **Formatting Standards**: 確保包含 H1 標題、`[TOC]` 目錄、清晰 H2/H3 章節、表格或 Mermaid 圖表，預設主題 `claude-canvas`。
-- **Service Implementation**: Handled in `services/wiki_publisher.py` via `WikiPublisherService` (內建 `format_and_publish_if_long` 自動判斷與轉發布機制)。
+- **CRITICAL RULE 1**: Always extract and provide the **`shareUrl`** (e.g. `https://wiki.david888.com/share/<id>`) to the user. Never return the internal edit `url`.
+- **CRITICAL RULE 2 (Document Structure)**: 文章第一行**必須強制為 Level-1 `# 文件標題`**（不得有任何對話寒暄開場廢話），緊接著引言摘要 `> ...` 與 `[TOC]` 目錄。
+- **Multi-Modal Views**: 支援 2D 簡報模式 (`shareUrl + '/present'`) 與雙欄電子書模式 (`shareUrl + '/book'`)。
+- **Markdown Utilities**: 提供無狀態 API：`POST /api/markdown/render`, `POST /api/markdown/parse`, `POST /api/markdown/extract`, `POST /api/markdown/lint`。
+- **Service Implementation**: Handled in `services/wiki_publisher.py` via `WikiPublisherService` (內建 `format_and_publish_if_long` 與 Agentic Tool `publish_wiki_note`)。
 
 ---
 

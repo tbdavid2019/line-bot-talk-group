@@ -23,8 +23,10 @@ Line @377mwhqu
   - **主要繪圖**：`https://nen.com.tw/v1` (`gemini-3.1-flash-image`)
   - **備用繪圖**：`https://generativelanguage.googleapis.com/v1beta` (`gemini-3.1-flash-image` / `gemini-3-pro-image-preview` / `gemini-2.5-flash-image`)
   - **儲存加速**：自動提取圖片並即時推送至 888box 多節點 CDN 儲存庫，生成專屬預覽連結
-- ✅ **David888 Wiki 知識庫發布整合 (AI-First Canvas)**：
-  - **LLM 自主長篇發布**：人類交代長篇分析、專題研究、系統架構或教學手冊時，LLM 自主編寫完整 Markdown（含 `[TOC]` 目錄、章節、表格與 Mermaid 圖表）並發布至 `wiki.david888.com`，在 LINE 中回傳精華摘要與線上閱讀連結 (`shareUrl`)。
+- ✅ **David888 Wiki 知識庫發布整合 (AI-First Canvas & Multi-Modal Views)**：
+  - **LLM 自主長篇發布與 Tool Calling**：支援透過 `publish_wiki_note` 工具或文字指令發布。文章第一行強制採用 Level-1 `# 文件標題`（無廢話開場），自動排版 `[TOC]` 目錄與清晰章節。
+  - **多模式閱讀 (Multi-Modal Views)**：回傳公開唯讀 `shareUrl`，並自動識別 2D 簡報模式 (`shareUrl + '/present'`) 與雙欄電子書模式 (`shareUrl + '/book'`)。
+  - **無狀態 Markdown 處理工具**：內建 `render_markdown`、`parse_html_to_markdown`、`extract_structure` 與 `lint_markdown` 工具。
   - **群組指令**：支援 `!wiki summary`（一鍵將對話轉存為 Wiki 專頁）與 `!wiki <標題> <內容>`。
 - ✅ **888box Asset Storage 多節點整合**：
   - 支援將 AI 生成圖片、音訊、影片及匯出檔案自動存入 888box CDN

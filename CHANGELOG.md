@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-08-28
+
+### Added
+- **Session & Memory Architecture Documentation (`README.md`)**:
+  - Documented the context-aware hybrid session & memory architecture:
+    - Multi-turn stateful session for 1:1 private chats (`users/{user_id}/message_events`).
+    - Append-only transcript history for group conversations (`groups/{group_id}/message_events`) for `!摘要` and `!wiki summary`.
+    - Stateless one-shot Q&A for group `@bot` mentions to prevent context pollution and save tokens.
+    - Distributed idempotent message lock via Firebase RTDB (`acquire_message_lock`).
+
 ## 2026-08-27
 
 ### Added

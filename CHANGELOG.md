@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## 2026-08-28
 
+### Fixed
+- **2MD Fast Reader & SERP Live Search UTF-8 Decoding (`services/web_search.py`)**:
+  - Fixed character encoding bug where `requests.get` defaulted to `ISO-8859-1`, causing Chinese search results to be returned as garbled mojibake and triggering LLM "I don't have current price information" false negatives.
+  - Explicitly set `resp.encoding = "utf-8"` on all 2MD search and web reading responses.
+  - Expanded `REALTIME_KEYWORDS` with `行情`, `價格`, `多少錢`, `售價`, `特價`, `規格`, `開賣`, `手機`, `旗艦` to reliably trigger search grounding on product queries.
+- **Multi-Tier LLM Agent Tool Calling & System Grounding (`services/llm.py`)**:
+  - Enforced strict Traditional Chinese (`zh-TW`) system prompt and anti-hallucination grounding across all LLM tiers.
+  - Equipped Groq Fallback (`openai/gpt-oss-20b`) with autonomous multi-turn Tool Calling loop to avoid HTTP 400 `tool_use_failed` errors.
+  - Upgraded Google Gemini Fallback to support both `google-genai` v2 Client and legacy `google-generativeai` with automatic real-time web search enrichment.
+
 ### Added
 - **LINE SafeReply Push Fallback Mechanism (`main.py`)**:
   - Implemented `safe_reply_message` wrapper across all bot response endpoints (text replies, AI answers, and image generations).

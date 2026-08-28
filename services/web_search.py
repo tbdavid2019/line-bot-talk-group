@@ -58,7 +58,8 @@ WEATHER_KEYWORDS = ["天氣", "氣溫", "降雨", "下雨", "風浪", "氣象", 
 REALTIME_KEYWORDS = [
     "股價", "即時", "今日", "今天", "最新", "新聞", "走勢", "匯率",
     "上市", "ipo", "股票", "報價", "市值", "財報", "營收", "盤後", "美股", "台股",
-    "現價", "漲跌", "news", "price", "stock", "who is", "what happened", "current", "latest", "today"
+    "現價", "漲跌", "行情", "價格", "多少錢", "價錢", "售價", "特價", "規格", "評測", "發表", "開賣",
+    "手機", "旗艦", "news", "price", "stock", "quote", "who is", "what happened", "current", "latest", "today"
 ]
 
 SEARCH_ACTION_PREFIXES = [
@@ -204,6 +205,9 @@ class WebSearchService:
         if not clean_query:
             clean_query = query.strip()
 
+        # Remove trailing question marks and conversational punctuation for cleaner SERP keywords
+        clean_query = re.sub(r'[？?！!。，,\s]+$', '', clean_query)
+
         encoded_query = quote(clean_query)
 
         for base_url in self.base_urls:
@@ -216,6 +220,7 @@ class WebSearchService:
                     headers={"Accept": "text/plain"},
                     timeout=self.timeout
                 )
+                resp.encoding = "utf-8"
                 if resp.status_code == 200 and resp.text and not resp.text.startswith("No search results available"):
                     logger.info(f"Search successful from {base_url} (length: {len(resp.text)})")
                     return resp.text
@@ -227,6 +232,7 @@ class WebSearchService:
                     headers={"Accept": "text/plain"},
                     timeout=self.timeout
                 )
+                resp2.encoding = "utf-8"
                 if resp2.status_code == 200 and resp2.text and not resp2.text.startswith("No search results available"):
                     logger.info(f"Search successful from {base_url}/s/ (length: {len(resp2.text)})")
                     return resp2.text
@@ -253,6 +259,7 @@ class WebSearchService:
                     headers={"Accept": "text/plain"},
                     timeout=self.timeout
                 )
+                resp.encoding = "utf-8"
                 if resp.status_code == 200 and resp.text:
                     logger.info(f"Read URL successful from {base_url} (length: {len(resp.text)})")
                     return resp.text

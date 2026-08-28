@@ -58,11 +58,11 @@ AVAILABLE_TOOLS = [
 ]
 
 SYSTEM_GROUNDING_PROMPT = (
-    "你是一個全知、親切且具備 2MD 高速即時網路搜尋、網頁閱讀與即時氣象觀測能力的 AI 助理。"
-    "當使用者詢問最新天氣、股票行情、即時新聞或任何實時事實時，請務必主動調用工具獲取最新資訊。"
-    "【重要守則】：\n"
-    "1. 嚴禁推托「我沒有即時資料」或向使用者抱怨搜尋結果不足。\n"
-    "2. 務必直接給出親切、明確、最新且具體的回答與生活/出行建議。"
+    "你是一個全知、專業、親切且具備 2MD 高速即時網路搜尋、網頁閱讀與即時氣象觀測能力的 AI 智慧助理。\n"
+    "【重要守則】:\n"
+    "1. 必須一律使用「繁體中文（台灣習慣用語）」回答，嚴禁使用簡體中文或擅自使用英文，除非使用者明確要求英文。\n"
+    "2. 當使用者詢問最新科技產品、手機行情/價格/規格、股票即時報價、即時新聞、匯率或任何真實世界事實時，請務必主動調用 search_web 等工具獲取最新真實資料。\n"
+    "3. 嚴禁推托「我沒有即時資料」或「我是 AI 無法獲取行情」。請根據搜尋結果直接給出清晰、明確且具體的價格、規格或客觀事實分析。"
 )
 
 
@@ -86,15 +86,32 @@ class LLMService:
         timeout: int = 60,
         enable_web_search: bool = True
     ) -> None:
-        # 1. Primary endpoint (Default: nen.com.tw / gpt-5.6-luna)
-        self.primary_base_url = (
-            primary_base_url or os.getenv("LLM_API_BASE") or "https://nen.com.tw/v1"
-        ).rstrip('/')
-        self.primary_model = primary_model or os.getenv("LLM_MODEL") or "gpt-5.6-luna"
+        # 1. Primary endpoint (Default: nen.com.tw / gpt-5.6-luna or OpenAI official if key provided)
+        env_llm_key = os.getenv("LLM_API_KEY")
+        env_openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("ASR_OPENAI_API_KEY")
+
+        if primary_base_url:
+            self.primary_base_url = primary_base_url.rstrip('/')
+        elif os.getenv("LLM_API_BASE"):
+            self.primary_base_url = os.getenv("LLM_API_BASE").rstrip('/')
+        elif env_openai_key and not env_llm_key:
+            self.primary_base_url = "https://api.openai.com/v1"
+        else:
+            self.primary_base_url = "https://nen.com.tw/v1"
+
+        if primary_model:
+            self.primary_model = primary_model
+        elif os.getenv("LLM_MODEL"):
+            self.primary_model = os.getenv("LLM_MODEL")
+        elif "api.openai.com" in self.primary_base_url:
+            self.primary_model = "gpt-4o-mini"
+        else:
+            self.primary_model = "gpt-5.6-luna"
+
         self.primary_api_key = (
             primary_api_key
-            or os.getenv("LLM_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
+            or env_llm_key
+            or env_openai_key
             or ""
         )
 
@@ -248,56 +265,126 @@ class LLMService:
             except Exception as e:
                 logger.warning(f"Primary LLM agent loop failed: {e}. Switching to Fallback LLM...")
 
-        # 2. Try Fallback LLM (Groq / openai/gpt-oss-20b) with pre-enriched prompt
+        # 2. Try Fallback LLM (Groq / openai/gpt-oss-20b) with Autonomous Tool Loop
         if self.fallback_base_url and self.fallback_api_key and self.fallback_model:
             try:
-                fallback_messages = [dict(m) for m in raw_messages]
-                if self.enable_web_search and fallback_messages:
-                    last_msg = fallback_messages[-1]
-                    if last_msg.get("role") == "user":
-                        last_msg["content"] = self.web_search_service.enrich_prompt_with_web(last_msg["content"])
+                logger.info(f"Invoking Fallback LLM ({self.fallback_model} @ {self.fallback_base_url}) with agentic tools...")
+                fallback_messages: List[Dict[str, Any]] = []
+                has_system = any(m.get("role") == "system" for m in raw_messages)
+                if not has_system:
+                    fallback_messages.append({"role": "system", "content": SYSTEM_GROUNDING_PROMPT})
+                fallback_messages.extend([dict(m) for m in raw_messages])
 
-                logger.info(f"Invoking Fallback LLM ({self.fallback_model} @ {self.fallback_base_url})...")
-                resp = requests.post(
-                    f"{self.fallback_base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.fallback_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": self.fallback_model,
-                        "messages": fallback_messages
-                    },
-                    timeout=self.timeout
-                )
-                if resp.status_code == 200:
+                for step in range(5):
+                    resp = requests.post(
+                        f"{self.fallback_base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.fallback_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": self.fallback_model,
+                            "messages": fallback_messages,
+                            "tools": AVAILABLE_TOOLS if self.enable_web_search else None
+                        },
+                        timeout=self.timeout
+                    )
+                    if resp.status_code != 200:
+                        logger.warning(f"Fallback LLM step {step} returned HTTP {resp.status_code}: {resp.text[:200]}")
+                        break
+
+                    resp.encoding = "utf-8"
                     data = resp.json()
                     choices = data.get("choices", [])
-                    if choices:
-                        reply_text = choices[0].get("message", {}).get("content", "")
+                    if not choices:
+                        break
+
+                    msg = choices[0].get("message", {})
+                    fallback_messages.append(msg)
+
+                    tool_calls = msg.get("tool_calls")
+                    if not tool_calls:
+                        reply_text = msg.get("content", "")
                         if reply_text:
                             return LLMResponse(reply_text)
-                logger.error(f"Fallback LLM returned HTTP {resp.status_code}: {resp.text[:200]}")
+                        break
+
+                    for tc in tool_calls:
+                        func = tc.get("function", {})
+                        func_name = func.get("name", "")
+                        try:
+                            func_args = json.loads(func.get("arguments", "{}"))
+                        except Exception:
+                            func_args = {}
+
+                        logger.info(f"Fallback Agent executing tool: {func_name}({func_args})")
+                        tool_output = self._execute_tool(func_name, func_args)
+
+                        fallback_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.get("id"),
+                            "content": tool_output
+                        })
             except Exception as e:
                 logger.error(f"Fallback LLM failed: {e}")
 
-        # 3. Last Resort Fallback: Google Gemini
+        # 3. Last Resort Fallback: Google Gemini (Dual SDK v2 / v1 with Web Grounding)
         gemini_key = (
             os.getenv("ASR_GEMINI_API_KEY")
             or os.getenv("GEMINI_LLM_API_KEY")
             or os.getenv("GEMINI_API_KEY")
         )
         if gemini_key:
+            prompt_text = ""
+            if isinstance(contents, str):
+                prompt_text = contents
+            elif isinstance(contents, list) and contents:
+                for c in reversed(contents):
+                    if isinstance(c, str):
+                        prompt_text = c
+                        break
+                    elif isinstance(c, dict) and c.get('role') in ('user', 'human'):
+                        parts = c.get('parts', [])
+                        if parts and isinstance(parts[0], str):
+                            prompt_text = parts[0]
+                            break
+            if not prompt_text:
+                prompt_text = str(contents)
+
+            enriched_prompt = (
+                self.web_search_service.enrich_prompt_with_web(prompt_text)
+                if self.enable_web_search else prompt_text
+            )
+            final_gemini_prompt = (
+                f"{SYSTEM_GROUNDING_PROMPT}\n\n"
+                f"使用者詢問內容：\n{enriched_prompt}"
+            )
+
+            # Try google-genai v2 Client SDK
             try:
-                logger.info("Attempting final fallback to Google Gemini...")
+                logger.info("Attempting Google Gemini fallback via google-genai v2 Client...")
+                from google import genai as genai_v2
+                client = genai_v2.Client(api_key=gemini_key)
+                model_name = os.getenv("GEMINI_LLM_MODEL", "gemini-2.5-flash")
+                res = client.models.generate_content(
+                    model=model_name,
+                    contents=final_gemini_prompt
+                )
+                if res and res.text:
+                    return LLMResponse(res.text)
+            except Exception as e_v2:
+                logger.warning(f"Google GenAI v2 fallback failed: {e_v2}. Trying legacy google-generativeai v1...")
+
+            # Try legacy google-generativeai v1 SDK
+            try:
                 import google.generativeai as genai
                 genai.configure(api_key=gemini_key)
                 model_name = os.getenv("GEMINI_LLM_MODEL", "gemini-flash-latest")
                 model = genai.GenerativeModel(model_name)
-                res = model.generate_content(contents)
+                res = model.generate_content(final_gemini_prompt)
                 if res and res.text:
                     return LLMResponse(res.text)
-            except Exception as e:
-                logger.error(f"Google Gemini fallback failed: {e}")
+            except Exception as e_v1:
+                logger.error(f"Google Gemini legacy v1 fallback failed: {e_v1}")
 
         raise RuntimeError("All LLM providers (Primary, Fallback, Gemini) failed to generate response.")
